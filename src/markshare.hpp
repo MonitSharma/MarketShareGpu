@@ -16,8 +16,8 @@ public:
      */
     MarkShareFeas(size_t m, size_t seed = 0) : m_rows{m}, n_cols{10 * (m_rows - 1)}
     {
-        matrix.resize(m_rows * n_cols);
-        rhs.resize(m_rows);
+        matrix.reserve(m_rows * n_cols);
+        rhs.reserve(m_rows);
 
         constexpr size_t lower = 0;
         constexpr size_t upper = 99;
