@@ -1,12 +1,21 @@
 #pragma once
 
-#include <vector>
+#include <cassert>
 #include <random>
+#include <vector>
+#include <fstream>
+#include <string>
 
 /* A market share feasibility instance. */
 class MarkShareFeas
 {
 public:
+    MarkShareFeas(size_t m, size_t n, std::vector<size_t> &&A, std::vector<size_t> &&b) : matrix(std::move(A)), rhs(std::move(b)), m_rows(m), n_cols(n)
+    {
+        assert(matrix.size() == m * n);
+        assert(rhs.size() == m);
+    }
+
     /* Generates a market share feasibility instance (or a multi-dimensional subset sum problem)
      *   Ax = b
      * with A \in \Z^{mxn}, a_ij \in \{0,..,99\}, n = 10 * (m - 1), m \in \N, b_i = |_ 1/2 \sum^n_j=1 a_ij _|
@@ -67,6 +76,77 @@ public:
     size_t n()
     {
         return n_cols;
+    }
+
+    bool is_solution_feasible(const std::vector<size_t> &indices) const
+    {
+        for (size_t row = 0; row < m_rows; ++row)
+        {
+            size_t val = 0;
+            for (auto i : indices)
+            {
+                val += matrix[row * n_cols + i];
+                if (val > rhs[row])
+                {
+                    return false;
+                }
+            }
+
+            if (val != rhs[row])
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    void write_as_prb(const std::string &name) const
+    {
+        std::ofstream file(name);
+
+        file << "[\n"
+             << "]\n";
+        file << "\n";
+
+        file << "[\n";
+        /* Write the matrix. */
+        for (size_t row = 0; row < m_rows; ++row)
+        {
+            file << "[";
+            for (size_t col = 0; col < n_cols; ++col)
+            {
+                file << " " << matrix[row * n_cols + col];
+            }
+            file << " ]\n";
+        }
+        file << "]\n";
+
+        file << "[ ]\n";
+        file << "\n";
+        file << "[ ]\n";
+        file << "\n";
+
+        file << "[";
+        /* Write the right hand side. */
+        for (size_t row = 0; row < m_rows; ++row)
+        {
+            file << " " << rhs[row];
+        }
+        file << " ]\n";
+
+        file << "\n";
+
+        file << "[";
+        /* Write 1s for each column. */
+        for (size_t col = 0; col < n_cols; ++col)
+        {
+            file << " 1";
+        }
+        file << "]\n";
+
+        file << "\n";
+        file << "0";
+        file << "\n";
     }
 
 private:
