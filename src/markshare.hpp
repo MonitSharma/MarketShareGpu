@@ -82,7 +82,7 @@ public:
         return n_cols;
     }
 
-    bool check_sum_feas(size_t* values1, size_t* values2) const
+    bool check_sum_feas(const size_t *values1, const size_t *values2) const
     {
         assert(values1[0] + values2[0] == rhs[0]);
 
@@ -94,7 +94,7 @@ public:
         return true;
     }
 
-    bool compute_values(const std::vector<size_t> &indices, size_t len_indices, size_t* values) const
+    bool compute_values(const std::vector<size_t> &indices, size_t len_indices, size_t *values) const
     {
         bool feas = true;
         for (size_t row = 0; row < m_rows; ++row)
