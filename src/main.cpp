@@ -305,6 +305,8 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
     assert(list1.size() + list2.size() + list3.size() + list4.size() == subset_sum_1d.size());
 
     const std::vector<size_t> offsets = {0, list1.size(), list1.size() + list2.size(), list1.size() + list2.size() + list3.size()};
+    const std::vector<size_t> offsetsQ1 = {0, list1.size()};
+    const std::vector<size_t> offsetsQ2 = {list1.size() + list2.size(), list1.size() + list2.size() + list3.size()};
 
     // TODO: generate subsets and extract sets can possibly be combined.
     auto [set1_weights, set1_subsets] = generate_subsets(list1);
@@ -420,15 +422,69 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
 
             volatile bool done = false;
 
-#pragma omp parallel for shared(done)
-            for (auto pair_q1 : same_score_q1)
+            /* Precompute the partial scores. */
+            std::vector<size_t> buffered_scores_q1(ms_inst.m() * same_score_q1.size());
+            std::vector<size_t> buffered_scores_q2(ms_inst.m() * same_score_q2.size());
+
+            std::vector<bool> feas_q1(same_score_q1.size());
+            std::vector<bool> feas_q2(same_score_q2.size());
+
+            size_t nfeas_q1 = 0;
+            size_t nfeas_q2 = 0;
+#pragma omp parallel for reduction(+:nfeas_q1)
+            for (size_t i = 0; i < same_score_q1.size(); ++i)
             {
-                for (auto pair_q2 : same_score_q2)
+                size_t len = 0;
+                size_t threadId = omp_get_thread_num();
+                auto &solution_1d = thread_solution_1d[threadId];
+                auto pair_q1 = same_score_q1[i];
+
+                std::vector<std::vector<size_t>> vectors = {set1_subsets[pair_q1.first], set2_subsets[asc_indicies_set2_weights[pair_q1.second]]};
+                concat_vectors(solution_1d, len, vectors, offsetsQ1);
+
+                feas_q1[i] = ms_inst.compute_values(solution_1d, len, buffered_scores_q1.data() + i * ms_inst.m());
+                nfeas_q1 += (feas_q1[i] == true);
+            }
+
+#pragma omp parallel for reduction(+:nfeas_q2)
+            for (size_t i = 0; i < same_score_q2.size(); ++i)
+            {
+                size_t len = 0;
+                size_t threadId = omp_get_thread_num();
+                auto &solution_1d = thread_solution_1d[threadId];
+                auto pair_q2 = same_score_q2[i];
+
+                std::vector<std::vector<size_t>> vectors = {set3_subsets[pair_q2.first], set4_subsets[desc_indicies_set4_weights[pair_q2.second]]};
+                concat_vectors(solution_1d, len, vectors, offsetsQ2);
+
+                feas_q2[i] = ms_inst.compute_values(solution_1d, len, buffered_scores_q2.data() + i * ms_inst.m());
+                nfeas_q2 += (feas_q2[i] == true);
+            }
+
+            printf("Still checking %ld x %ld = %ld possible solutions\n", nfeas_q1, nfeas_q2, nfeas_q1 * nfeas_q2);
+
+
+#pragma omp parallel for shared(done)
+            for (size_t iq1 = 0; iq1 < same_score_q1.size(); ++iq1)
+            {
+                if (!feas_q1[iq1])
+                    continue;
+
+                for (size_t iq2 = 0; iq2 < same_score_q2.size(); ++iq2)
                 {
                     size_t len = 0;
 
+                    if (!feas_q2[iq2])
+                        continue;
+
                     if (done)
                         continue;
+
+                    if (!ms_inst.check_sum_feas(buffered_scores_q1.data() + iq1 * ms_inst.m(), buffered_scores_q2.data() + iq2 * ms_inst.m()))
+                        continue;
+
+                    auto pair_q1 = same_score_q1[iq1];
+                    auto pair_q2 = same_score_q2[iq2];
 
                     size_t threadId = omp_get_thread_num();
                     auto &solution_1d = thread_solution_1d[threadId];
@@ -440,13 +496,11 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
                     concat_vectors(solution_1d, len, vectors, offsets);
 
                     /* We found a solution. Construct it, print it, and return. */
-                    if (ms_inst.is_solution_feasible(solution_1d, len))
-                    {
-                        printf("Found market share solution from SS-Algorithm! %ld == %ld\n", score, rhs_subset_sum_1d);
+                    assert(ms_inst.is_solution_feasible(solution_1d, len));
+                    printf("Found market share solution from SS-Algorithm! %ld == %ld\n", score, rhs_subset_sum_1d);
 
-                        print_four_list_solution(pair1.first, asc_indicies_set2_weights[pair1.second], pair2.first, desc_indicies_set4_weights[pair2.second], list1, list2, list3, list4);
-                        done = true;
-                    }
+                    print_four_list_solution(pair1.first, asc_indicies_set2_weights[pair1.second], pair2.first, desc_indicies_set4_weights[pair2.second], list1, list2, list3, list4);
+                    done = true;
                 }
             }
 

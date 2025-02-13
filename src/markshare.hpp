@@ -62,24 +62,58 @@ public:
     /* Generates a market share feasibility instance with n = 10 * (m - 1). */
     MarkShareFeas(size_t m, size_t seed = 0) : MarkShareFeas(m, 10 * (m_rows - 1), seed) {};
 
-    const std::vector<size_t> &A()
+    const std::vector<size_t> &A() const
     {
         return matrix;
     }
 
-    const std::vector<size_t> &b()
+    const std::vector<size_t> &b() const
     {
         return rhs;
     }
 
-    size_t m()
+    size_t m() const
     {
         return m_rows;
     }
 
-    size_t n()
+    size_t n() const
     {
         return n_cols;
+    }
+
+    bool check_sum_feas(size_t* values1, size_t* values2) const
+    {
+        assert(values1[0] + values2[0] == rhs[0]);
+
+        for (size_t row = 1; row < m_rows; ++row)
+        {
+            if (values1[row] + values2[row] != rhs[row])
+                return false;
+        }
+        return true;
+    }
+
+    bool compute_values(const std::vector<size_t> &indices, size_t len_indices, size_t* values) const
+    {
+        bool feas = true;
+        for (size_t row = 0; row < m_rows; ++row)
+        {
+            size_t val = 0;
+            for (size_t i_index = 0; i_index < len_indices; ++i_index)
+            {
+                size_t i = indices[i_index];
+                val += matrix[row * n_cols + i];
+                if (val > rhs[row])
+                {
+                    feas = false;
+                    break;
+                }
+            }
+            values[row] = val;
+            assert(values[row] <= rhs[row]);
+        }
+        return feas;
     }
 
     bool is_solution_feasible(const std::vector<size_t> &indices, size_t len_indices) const
