@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cassert>
+#include <iostream>
 #include <random>
 #include <vector>
 #include <fstream>
@@ -18,12 +19,12 @@ public:
 
     /* Generates a market share feasibility instance (or a multi-dimensional subset sum problem)
      *   Ax = b
-     * with A \in \Z^{mxn}, a_ij \in \{0,..,99\}, n = 10 * (m - 1), m \in \N, b_i = |_ 1/2 \sum^n_j=1 a_ij _|
+     * with A \in \Z^{mxn}, a_ij \in \{0,..,99\}, n, m \in \N, b_i = |_ 1/2 \sum^n_j=1 a_ij _|
      *
      * See
      * Gérard Cornuéjols, Milind Dawande, (1999) A Class of Hard Small 0-1 Programs. INFORMS Journal on Computing 11(2):205-210, https://doi.org/10.1287/ijoc.11.2.205.
      */
-    MarkShareFeas(size_t m, size_t seed = 0) : m_rows{m}, n_cols{10 * (m_rows - 1)}
+    MarkShareFeas(size_t m, size_t n, size_t seed = 0) : m_rows{m}, n_cols{n}
     {
         matrix.reserve(m_rows * n_cols);
         rhs.reserve(m_rows);
@@ -56,7 +57,10 @@ public:
 
             rhs.push_back(std::floor(0.5 * row_sum));
         }
-    };
+    }
+
+    /* Generates a market share feasibility instance with n = 10 * (m - 1). */
+    MarkShareFeas(size_t m, size_t seed = 0) : MarkShareFeas(m, 10 * (m_rows - 1), seed) {};
 
     const std::vector<size_t> &A()
     {
@@ -78,22 +82,25 @@ public:
         return n_cols;
     }
 
-    bool is_solution_feasible(const std::vector<size_t> &indices) const
+    bool is_solution_feasible(const std::vector<size_t> &indices, size_t len_indices) const
     {
         for (size_t row = 0; row < m_rows; ++row)
         {
             size_t val = 0;
-            for (auto i : indices)
+            for (size_t i_index = 0; i_index < len_indices; ++i_index)
             {
+                size_t i = indices[i_index];
                 val += matrix[row * n_cols + i];
                 if (val > rhs[row])
                 {
+                    assert(row != 0);
                     return false;
                 }
             }
 
             if (val != rhs[row])
             {
+                assert(row != 0);
                 return false;
             }
         }
@@ -102,6 +109,7 @@ public:
 
     void write_as_prb(const std::string &name) const
     {
+        std::cout << "Storing mark share instance as " << name << "\n";
         std::ofstream file(name);
 
         file << "[\n"
