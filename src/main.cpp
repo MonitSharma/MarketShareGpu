@@ -18,6 +18,10 @@
 
 #include <omp.h>
 
+#ifdef WITH_GPU
+#include "cuda_kernels.cu"
+#endif
+
 typedef std::chrono::high_resolution_clock::time_point TimeVar;
 
 #define duration(a) std::chrono::duration_cast<std::chrono::nanoseconds>(a).count()
@@ -281,19 +285,19 @@ void print_four_list_solution(size_t index_list1, size_t index_list2, size_t ind
     std::cout << "The sum is " << sum1 << " + " << sum2 << " + " << sum3 << " + " << sum4 << " = " << sum1 + sum2 + sum3 + sum4 << std::endl;
 }
 
-std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_cpu(const MarkShareFeas &ms_inst, const std::vector<std::pair<size_t, size_t>> &same_score_q1, const std::vector<std::pair<size_t, size_t>> &same_score_q2, const std::vector<bool> &feas_q1, const std::vector<bool> &feas_q2, const std::vector<size_t> &scores_q1, const std::vector<size_t> &scores_q2)
+std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_cpu(const MarkShareFeas &ms_inst, const std::vector<bool> &feas_q1, const std::vector<bool> &feas_q2, const std::vector<size_t> &scores_q1, const std::vector<size_t> &scores_q2, size_t n_q1, size_t n_q2)
 {
     bool done = false;
     std::pair<size_t, size_t> solution_indices;
 
 #pragma omp parallel shared(done)
 #pragma omp for
-    for (size_t iq1 = 0; iq1 < same_score_q1.size(); ++iq1)
+    for (size_t iq1 = 0; iq1 < n_q1; ++iq1)
     {
         if (!feas_q1[iq1])
             continue;
 
-        for (size_t iq2 = 0; iq2 < same_score_q2.size(); ++iq2)
+        for (size_t iq2 = 0; iq2 < n_q2; ++iq2)
         {
             size_t len = 0;
 
@@ -505,7 +509,7 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
 
             printf("Still checking %ld x %ld = %ld possible solutions\n", nfeas_q1, nfeas_q2, nfeas_q1 * nfeas_q2);
 
-            auto [done, solution_indices] = evaluate_solutions_cpu(ms_inst, same_score_q1, same_score_q2, feas_q1, feas_q2, buffered_scores_q1, buffered_scores_q2);
+            auto [done, solution_indices] = evaluate_solutions_cpu(ms_inst, feas_q1, feas_q2, buffered_scores_q1, buffered_scores_q2, same_score_q1.size(), same_score_q2.size());
             if (!done)
                 continue;
 
