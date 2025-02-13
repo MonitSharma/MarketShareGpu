@@ -60,7 +60,7 @@ public:
     }
 
     /* Generates a market share feasibility instance with n = 10 * (m - 1). */
-    MarkShareFeas(size_t m, size_t seed = 0) : MarkShareFeas(m, 10 * (m_rows - 1), seed) {};
+    MarkShareFeas(size_t m, size_t seed = 0) : MarkShareFeas(m, 10 * (m - 1), seed) {};
 
     const std::vector<size_t> &A() const
     {
@@ -110,8 +110,9 @@ public:
                     break;
                 }
             }
+
             values[row] = val;
-            assert(values[row] <= rhs[row]);
+            assert(!feas || values[row] <= rhs[row]);
         }
         return feas;
     }

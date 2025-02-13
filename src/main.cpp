@@ -19,7 +19,7 @@
 #include <omp.h>
 
 #ifdef WITH_GPU
-#include "cuda_kernels.cu"
+#include "cuda_kernels.cuh"
 #endif
 
 typedef std::chrono::high_resolution_clock::time_point TimeVar;
@@ -172,7 +172,7 @@ size_t print_subset_and_compute_sum(const std::vector<size_t> &numbers, size_t i
     return sum;
 }
 
-std::vector<size_t> extract_subset(const std::vector<size_t> &numbers, size_t index, size_t offset = 0)
+std::vector<size_t> extract_subset(const std::vector<size_t> &numbers, size_t index)
 {
     std::vector<size_t> indices;
 
@@ -299,8 +299,6 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_cpu(const MarkShar
 
         for (size_t iq2 = 0; iq2 < n_q2; ++iq2)
         {
-            size_t len = 0;
-
             if (!feas_q2[iq2])
                 continue;
 
@@ -329,13 +327,15 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_cpu(const MarkShar
     return {done, solution_indices};
 }
 
-bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subset_sum_1d, const MarkShareFeas &ms_inst)
+bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subset_sum_1d, const MarkShareFeas &ms_inst, bool run_on_GPU)
 {
     const size_t split_index1 = subset_sum_1d.size() / 4;
     const size_t split_index2 = subset_sum_1d.size() / 2;
     const size_t split_index3 = 3 * subset_sum_1d.size() / 4;
 
     size_t num_thread = omp_get_max_threads();
+
+    std::cout << "Running with " << omp_get_max_threads() << " threads" << std::endl;
 
     std::vector<std::vector<size_t>> thread_solution_1d(num_thread);
 
@@ -509,13 +509,28 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
 
             printf("Still checking %ld x %ld = %ld possible solutions\n", nfeas_q1, nfeas_q2, nfeas_q1 * nfeas_q2);
 
-            auto [done, solution_indices] = evaluate_solutions_cpu(ms_inst, feas_q1, feas_q2, buffered_scores_q1, buffered_scores_q2, same_score_q1.size(), same_score_q2.size());
-            if (!done)
+            bool found = false;
+            std::pair<size_t, size_t> solution;
+            if (run_on_GPU)
+            {
+                auto [done, solution_indices] = evaluate_solutions_gpu(ms_inst, feas_q1, feas_q2, buffered_scores_q1, buffered_scores_q2, same_score_q1.size(), same_score_q2.size());
+
+                found = done;
+                solution = solution_indices;
+            }
+            else
+            {
+                auto [done, solution_indices] = evaluate_solutions_cpu(ms_inst, feas_q1, feas_q2, buffered_scores_q1, buffered_scores_q2, same_score_q1.size(), same_score_q2.size());
+
+                found = done;
+                solution = solution_indices;
+            }
+            if (!found)
                 continue;
 
             /* Print and verify the solution! */
-            auto pair_q1 = same_score_q1[solution_indices.first];
-            auto pair_q2 = same_score_q2[solution_indices.second];
+            auto pair_q1 = same_score_q1[solution.first];
+            auto pair_q2 = same_score_q2[solution.second];
 
             size_t threadId = omp_get_thread_num();
             auto &solution_1d = thread_solution_1d[threadId];
@@ -528,7 +543,8 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
             concat_vectors(solution_1d, len, vectors, offsets);
 
             /* We found a solution. Construct it, print it, and return. */
-            assert(ms_inst.is_solution_feasible(solution_1d, len));
+            if (!ms_inst.is_solution_feasible(solution_1d, len))
+                printf("Error, solution is not feasible!\n");
             printf("Found market share solution from SS-Algorithm!\n");
 
             print_four_list_solution(pair_q1.first, asc_indicies_set2_weights[pair_q1.second], pair_q2.first, desc_indicies_set4_weights[pair_q2.second], list1, list2, list3, list4);
@@ -598,6 +614,10 @@ int main(int argc, char *argv[])
         .help("Number of problems to solve. Seed for problem of iteration i (starting from 0) is seed + i.")
         .default_value(1);
 
+    program.add_argument("--gpu")
+        .help("Run validation on GPU")
+        .flag();
+
     try
     {
         program.parse_args(argc, argv);
@@ -636,7 +656,7 @@ int main(int argc, char *argv[])
         // two_list_algorithm(subset_sum_1d, rhs_subset_sum_1d);
 
         /* Shroeppel-Shamir */
-        if (shroeppel_shamir(subset_sum_1d, rhs_subset_sum_1d, instance))
+        if (shroeppel_shamir(subset_sum_1d, rhs_subset_sum_1d, instance, program["--gpu"] == true))
         {
             printf("Actually found something!\n");
             break;

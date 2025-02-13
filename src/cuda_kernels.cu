@@ -1,24 +1,32 @@
+#include "cuda_kernels.cuh"
+
 #include <cuda_runtime.h>
 #include <iostream>
-#include <vector>
 
-#include "markshare.hpp"
-
-__global__ void check_sums(const size_t *val1, const size_t *val2, const size_t *rhs, size_t *solution, size_t n_val1, size_t n_val2, size_t m_rhs, )
+__global__ void check_sums(const size_t *val1, const size_t *val2, const size_t *rhs, size_t *solution, size_t n_val1, size_t n_val2, size_t m_rhs)
 {
     int i1 = blockIdx.x * blockDim.x + threadIdx.x; // Thread for index i1
     int i2 = blockIdx.y * blockDim.y + threadIdx.y; // Thread for index i2
 
     if (i1 < n_val1 && i2 < n_val2)
     {
+        bool feas = true;
+
         for (int j = 1; j < m_rhs; ++j)
         {
-            const size_t sum = val1[i1 * m + j] + val2[i2 * m + j];
+            const size_t sum = val1[i1 * m_rhs + j] + val2[i2 * m_rhs + j];
             if (sum != rhs[j])
+            {
+                feas = false;
                 break;
+            }
         }
-        *solution = i1 * n_val2 + i2;
-        return;
+
+        if (feas)
+        {
+            *solution = i1 * n_val2 + i2;
+            return;
+        }
     }
 }
 
@@ -36,13 +44,12 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu(const MarkShar
     size_t result;
     cudaMemcpy(d_scores_q1, scores_q1.data(), scores_q1.size() * sizeof(size_t), cudaMemcpyHostToDevice);
     cudaMemcpy(d_scores_q2, scores_q2.data(), scores_q2.size() * sizeof(size_t), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_rhs, h_rhs.data(), m * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_rhs, ms_inst.b().data(), m * sizeof(size_t), cudaMemcpyHostToDevice);
     cudaMemcpy(d_solution, &sol_invalid, sizeof(size_t), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_found, &h_found, sizeof(bool), cudaMemcpyHostToDevice);
 
     // Define grid and block sizes
-    dim3 blockDim(16, 16);                                                                // Threads per block
-    dim3 gridDim((n1 + blockDim.x - 1) / blockDim.x, (n2 + blockDim.y - 1) / blockDim.y); // Blocks per grid
+    dim3 blockDim(32, 32);                                                                // Threads per block
+    dim3 gridDim((n_q1 + blockDim.x - 1) / blockDim.x, (n_q2 + blockDim.y - 1) / blockDim.y); // Blocks per grid
 
     // Launch kernel
     check_sums<<<gridDim, blockDim>>>(d_scores_q1, d_scores_q2, d_rhs, d_solution, n_q1, n_q2, m);
@@ -55,6 +62,7 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu(const MarkShar
     cudaFree(d_rhs);
     cudaFree(d_solution);
 
+    cudaDeviceSynchronize();
     if (result != sol_invalid)
     {
         printf("GPU found solution!\n");
