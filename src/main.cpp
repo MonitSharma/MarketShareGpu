@@ -15,6 +15,7 @@
 #include <queue>
 #include <utility>
 #include <string>
+#include <unordered_map>
 
 #include <omp.h>
 
@@ -327,6 +328,81 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_cpu(const MarkShar
     return {done, solution_indices};
 }
 
+// Custom hash function to encode the vector as an __int128_t
+__int128_t encode_vector(const size_t *vec, size_t len)
+{
+    constexpr size_t base = 10000; // 4 digits per value
+    __int128_t hash_value = 0;
+
+    for (size_t i_vec = 0; i_vec < len; ++i_vec)
+        hash_value = hash_value * base + vec[i_vec];
+
+    return hash_value;
+}
+
+std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_cpu_hashing(const MarkShareFeas &ms_inst, const std::vector<bool> &feas_q1, const std::vector<bool> &feas_q2, const std::vector<size_t> &scores_q1, const std::vector<size_t> &scores_q2, size_t n_q1, size_t n_q2)
+{
+    const size_t len_vec = ms_inst.m();
+    std::unordered_map<__int128_t, size_t> hashTable;
+    std::vector<size_t> needed(len_vec);
+    bool done = false;
+    std::pair<size_t, size_t> solution_indices = {n_q1, n_q2};
+
+    {
+        auto profiler = std::make_unique<ScopedProfiler>("Hash table setup");
+        for (size_t i_q1 = 0; i_q1 < n_q1; ++i_q1)
+        {
+            for (size_t j = 0; j < len_vec; ++j)
+            {
+                needed[j] = ms_inst.b()[j] - scores_q1[i_q1 * len_vec + j];
+            }
+
+            __int128_t needed_key = encode_vector(needed.data(), len_vec);
+            hashTable[needed_key] = i_q1;
+        }
+
+        profiler.reset();
+    }
+
+    {
+        auto profiler = std::make_unique<ScopedProfiler>("Hash table search");
+        {
+#pragma omp parallel shared(done)
+#pragma omp for
+            for (size_t i_q2 = 0; i_q2 < n_q2; ++i_q2)
+            {
+                if (done)
+                {
+#pragma omp cancel for
+                }
+
+                __int128_t given_key = encode_vector(scores_q2.data() + i_q2 * len_vec, len_vec);
+
+                if (hashTable.find(given_key) != hashTable.end())
+                {
+                    /* Found a feasible solution! */
+#pragma omp critical
+                    {
+                        if (!done)
+                        {
+                            printf("Found with hashing!\n");
+                            const size_t i_q1 = hashTable[given_key];
+                            done = true;
+                            solution_indices = {i_q1, i_q2};
+                        }
+                    }
+#pragma omp flush(done)
+#pragma omp cancel for
+                }
+            }
+        }
+
+        profiler.reset();
+    }
+
+    return {done, solution_indices};
+}
+
 bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subset_sum_1d, const MarkShareFeas &ms_inst, bool run_on_GPU)
 {
     const size_t split_index1 = subset_sum_1d.size() / 4;
@@ -520,7 +596,8 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
             }
             else
             {
-                auto [done, solution_indices] = evaluate_solutions_cpu(ms_inst, feas_q1, feas_q2, buffered_scores_q1, buffered_scores_q2, same_score_q1.size(), same_score_q2.size());
+                auto [done, solution_indices] = evaluate_solutions_cpu_hashing(ms_inst, feas_q1, feas_q2, buffered_scores_q1, buffered_scores_q2, same_score_q1.size(), same_score_q2.size());
+                // auto [done, solution_indices] = evaluate_solutions_cpu(ms_inst, feas_q1, feas_q2, buffered_scores_q1, buffered_scores_q2, same_score_q1.size(), same_score_q2.size());
 
                 found = done;
                 solution = solution_indices;
