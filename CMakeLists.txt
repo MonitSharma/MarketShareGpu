@@ -42,6 +42,9 @@ endif(CUDA_ENABLED)
 
 target_compile_options(markshare_main PRIVATE -Wall -Wextra) # Warnings for C++
 
+
+# target_compile_options(markshare_main PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-g -G>)
+
 target_compile_features(markshare_main PUBLIC cxx_std_17)
 
 target_include_directories(markshare_main PRIVATE external/argparse/include/argparse)
