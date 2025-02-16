@@ -45,4 +45,13 @@ target_compile_options(markshare_main PRIVATE -Wall -Wextra) # Warnings for C++
 target_compile_features(markshare_main PUBLIC cxx_std_17)
 
 target_include_directories(markshare_main PRIVATE external/argparse/include/argparse)
-target_link_libraries(markshare_main PRIVATE OpenMP::OpenMP_CXX -ltbb)
+target_link_libraries(markshare_main PRIVATE OpenMP::OpenMP_CXX)
+
+# Conditionally link tbb on x86 (for intel OpenMP I assume?)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "i[3-6]86")
+    message(STATUS "Target is x86 architecture, linking TBB")
+    find_package(TBB REQUIRED)
+    target_link_libraries(markshare_main PRIVATE TBB::tbb)
+else()
+    message(STATUS "Target is not x86, skipping TBB")
+endif()

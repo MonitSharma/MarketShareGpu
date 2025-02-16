@@ -340,7 +340,7 @@ __int128_t encode_vector(const size_t *vec, size_t len)
     return hash_value;
 }
 
-std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_cpu_hashing(const MarkShareFeas &ms_inst, const std::vector<bool> &feas_q1, const std::vector<bool> &feas_q2, const std::vector<size_t> &scores_q1, const std::vector<size_t> &scores_q2, size_t n_q1, size_t n_q2)
+std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_cpu_hashing(const MarkShareFeas &ms_inst, const std::vector<size_t> &scores_q1, const std::vector<size_t> &scores_q2, size_t n_q1, size_t n_q2)
 {
     const size_t len_vec = ms_inst.m();
     std::unordered_map<__int128_t, size_t> hashTable;
@@ -403,23 +403,25 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_cpu_hashing(const 
     return {done, solution_indices};
 }
 
+void compute_scores_cpu(const MarkShareFeas &ms_inst, std::vector<size_t>& scores, const std::vector<std::pair<size_t, size_t>>& pairs, const std::vector<std::vector<size_t>>& pair_first_subsets,
+const std::vector<std::vector<size_t>>& pair_second_subsets, const std::vector<size_t> pair_second_map, const std::vector<size_t> offsets)
+{
+#pragma omp parallel for
+    for (size_t i = 0; i < pairs.size(); ++i)
+    {
+        auto& pair = pairs[i];
+
+        ms_inst.compute_values(pair_first_subsets[pair.first], pair_second_subsets[pair_second_map[pair.second]], offsets[0], offsets[1], scores.data() + i * ms_inst.m());
+    }
+}
+
 bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subset_sum_1d, const MarkShareFeas &ms_inst, bool run_on_GPU)
 {
     const size_t split_index1 = subset_sum_1d.size() / 4;
     const size_t split_index2 = subset_sum_1d.size() / 2;
     const size_t split_index3 = 3 * subset_sum_1d.size() / 4;
 
-    size_t num_thread = omp_get_max_threads();
-
     std::cout << "Running with " << omp_get_max_threads() << " threads" << std::endl;
-
-    std::vector<std::vector<size_t>> thread_solution_1d(num_thread);
-
-#pragma omp parallel
-    {
-        size_t threadId = omp_get_thread_num();
-        thread_solution_1d[threadId].resize(subset_sum_1d.size());
-    }
 
     /* Get 4 sublists. */
     std::vector<size_t> list1(subset_sum_1d.begin(), subset_sum_1d.begin() + split_index1);
@@ -496,6 +498,7 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
             std::vector<std::pair<size_t, size_t>> same_score_q1;
             std::vector<std::pair<size_t, size_t>> same_score_q2;
 
+            auto profiler_2 = std::make_unique<ScopedProfiler>("Candidate extraction");
             /* For each element a in q1 with score(a) == score_pair1, collect all solutions. */
             while (!q1.empty() && set1_weights[q1.top().first] + set2_weights[asc_indicies_set2_weights[q1.top().second]] == score_pair1)
             {
@@ -541,62 +544,47 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
                     q2.emplace(pair2_same_score.first, pos_set4_weights);
                 }
             }
+            profiler_2.reset();
+
 
             printf("Checking %ld x %ld = %ld possible solutions\n", same_score_q1.size(), same_score_q2.size(), same_score_q1.size() * same_score_q2.size());
 
-            /* Precompute the partial scores. */
-            std::vector<size_t> buffered_scores_q1(ms_inst.m() * same_score_q1.size());
-            std::vector<size_t> buffered_scores_q2(ms_inst.m() * same_score_q2.size());
-
-            std::vector<bool> feas_q1(same_score_q1.size());
-            std::vector<bool> feas_q2(same_score_q2.size());
-
-            size_t nfeas_q1 = 0;
-            size_t nfeas_q2 = 0;
-#pragma omp parallel for reduction(+ : nfeas_q1)
-            for (size_t i = 0; i < same_score_q1.size(); ++i)
-            {
-                size_t len = 0;
-                size_t threadId = omp_get_thread_num();
-                auto &solution_1d = thread_solution_1d[threadId];
-                auto pair_q1 = same_score_q1[i];
-
-                const std::vector<const std::vector<size_t> *> vectors = {&set1_subsets[pair_q1.first], &set2_subsets[asc_indicies_set2_weights[pair_q1.second]]};
-                concat_vectors(solution_1d, len, vectors, offsetsQ1);
-
-                feas_q1[i] = ms_inst.compute_values(solution_1d, len, buffered_scores_q1.data() + i * ms_inst.m());
-                nfeas_q1 += (feas_q1[i] == true);
-            }
-
-#pragma omp parallel for reduction(+ : nfeas_q2)
-            for (size_t i = 0; i < same_score_q2.size(); ++i)
-            {
-                size_t len = 0;
-                size_t threadId = omp_get_thread_num();
-                auto &solution_1d = thread_solution_1d[threadId];
-                auto pair_q2 = same_score_q2[i];
-
-                const std::vector<const std::vector<size_t> *> vectors = {&set3_subsets[pair_q2.first], &set4_subsets[desc_indicies_set4_weights[pair_q2.second]]};
-                concat_vectors(solution_1d, len, vectors, offsetsQ2);
-
-                feas_q2[i] = ms_inst.compute_values(solution_1d, len, buffered_scores_q2.data() + i * ms_inst.m());
-                nfeas_q2 += (feas_q2[i] == true);
-            }
-
-            printf("Still checking %ld x %ld = %ld possible solutions\n", nfeas_q1, nfeas_q2, nfeas_q1 * nfeas_q2);
-
             bool found = false;
             std::pair<size_t, size_t> solution;
+
             if (run_on_GPU)
             {
-                auto [done, solution_indices] = evaluate_solutions_gpu(ms_inst, feas_q1, feas_q2, buffered_scores_q1, buffered_scores_q2, same_score_q1.size(), same_score_q2.size());
+                profiler_2 = std::make_unique<ScopedProfiler>("Compute Scores");
+
+                /* Precompute the partial scores. */
+                std::vector<size_t> buffered_scores_q1(ms_inst.m() * same_score_q1.size());
+                std::vector<size_t> buffered_scores_q2(ms_inst.m() * same_score_q2.size());
+
+                compute_scores_cpu(ms_inst, buffered_scores_q1, same_score_q1, set1_subsets, set2_subsets, asc_indicies_set2_weights, offsetsQ1);
+                compute_scores_cpu(ms_inst, buffered_scores_q2, same_score_q2, set3_subsets, set4_subsets, desc_indicies_set4_weights, offsetsQ2);
+
+                profiler_2.reset();
+
+                auto [done, solution_indices] = evaluate_solutions_gpu_hashing(ms_inst, buffered_scores_q1, buffered_scores_q2, same_score_q1.size(), same_score_q2.size());
+                // auto [done, solution_indices] = evaluate_solutions_gpu(ms_inst, buffered_scores_q1, buffered_scores_q2, same_score_q1.size(), same_score_q2.size());
 
                 found = done;
                 solution = solution_indices;
             }
             else
             {
-                auto [done, solution_indices] = evaluate_solutions_cpu_hashing(ms_inst, feas_q1, feas_q2, buffered_scores_q1, buffered_scores_q2, same_score_q1.size(), same_score_q2.size());
+                profiler_2 = std::make_unique<ScopedProfiler>("Compute Scores");
+
+                /* Precompute the partial scores. */
+                std::vector<size_t> buffered_scores_q1(ms_inst.m() * same_score_q1.size());
+                std::vector<size_t> buffered_scores_q2(ms_inst.m() * same_score_q2.size());
+
+                compute_scores_cpu(ms_inst, buffered_scores_q1, same_score_q1, set1_subsets, set2_subsets, asc_indicies_set2_weights, offsetsQ1);
+                compute_scores_cpu(ms_inst, buffered_scores_q2, same_score_q2, set3_subsets, set4_subsets, desc_indicies_set4_weights, offsetsQ2);
+
+                profiler_2.reset();
+
+                auto [done, solution_indices] = evaluate_solutions_cpu_hashing(ms_inst, buffered_scores_q1, buffered_scores_q2, same_score_q1.size(), same_score_q2.size());
                 // auto [done, solution_indices] = evaluate_solutions_cpu(ms_inst, feas_q1, feas_q2, buffered_scores_q1, buffered_scores_q2, same_score_q1.size(), same_score_q2.size());
 
                 found = done;
@@ -609,8 +597,7 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
             auto pair_q1 = same_score_q1[solution.first];
             auto pair_q2 = same_score_q2[solution.second];
 
-            size_t threadId = omp_get_thread_num();
-            auto &solution_1d = thread_solution_1d[threadId];
+            std::vector<size_t> solution_1d(subset_sum_1d.size());
 
             assert(set1_weights[pair_q1.first] + set2_weights[asc_indicies_set2_weights[pair_q1.second]] + set3_weights[pair_q2.first] + set4_weights[desc_indicies_set4_weights[pair_q2.second]] == rhs_subset_sum_1d);
 
