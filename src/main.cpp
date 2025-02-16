@@ -415,7 +415,7 @@ const std::vector<std::vector<size_t>>& pair_second_subsets, const std::vector<s
     }
 }
 
-bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subset_sum_1d, const MarkShareFeas &ms_inst, bool run_on_GPU)
+bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subset_sum_1d, const MarkShareFeas &ms_inst, bool run_on_gpu)
 {
     const size_t split_index1 = subset_sum_1d.size() / 4;
     const size_t split_index2 = subset_sum_1d.size() / 2;
@@ -443,6 +443,8 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
     /* Sort set2_weights ascending, set4_weights descending. */
     auto asc_indicies_set2_weights = sort_indices(set2_weights, true);
     auto desc_indicies_set4_weights = sort_indices(set4_weights, false);
+
+    GpuData gpu_data(ms_inst, set1_subsets, set2_subsets, set3_subsets, set4_subsets, asc_indicies_set2_weights, desc_indicies_set4_weights);
 
     /* Create the priority queues q1 consisting of pairs {(i, 0) | i \in set1_weights} and q2 consisting of {(i, 0) | i \in set3_weights}. The priority/score for a pair (i, j)
      * is given set1_weights[i] + set2_weights[j] if the pair is in q1 and set3_weights[i] + set4_weights[j] if the pair is in q2. */
@@ -552,7 +554,7 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
             bool found = false;
             std::pair<size_t, size_t> solution;
 
-            if (run_on_GPU)
+            if (run_on_gpu)
             {
                 profiler_2 = std::make_unique<ScopedProfiler>("Compute Scores");
 
@@ -565,7 +567,7 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
 
                 profiler_2.reset();
 
-                auto [done, solution_indices] = evaluate_solutions_gpu_hashing(ms_inst, buffered_scores_q1, buffered_scores_q2, same_score_q1.size(), same_score_q2.size());
+                auto [done, solution_indices] = evaluate_solutions_gpu_hashing(gpu_data, buffered_scores_q1, buffered_scores_q2, same_score_q1.size(), same_score_q2.size());
                 // auto [done, solution_indices] = evaluate_solutions_gpu(ms_inst, buffered_scores_q1, buffered_scores_q2, same_score_q1.size(), same_score_q2.size());
 
                 found = done;

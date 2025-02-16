@@ -12,6 +12,62 @@
 
 #include <iostream>
 
+template <typename T>
+T *copy_to_device(const std::vector<T> &host_vec)
+{
+    T *device_ptr;
+    cudaMalloc(&device_ptr, host_vec.size() * sizeof(T));
+    cudaMemcpy(device_ptr, host_vec.data(), host_vec.size() * sizeof(T), cudaMemcpyHostToDevice);
+    return device_ptr;
+}
+
+static void copy_subsets(const std::vector<std::vector<size_t>>& set_subsets, size_t** set_beg_gpu, size_t** sets_gpu)
+{
+    size_t subsets_size_total = 0;
+    std::vector<size_t> set_beg;
+    set_beg.reserve(set_subsets.size() + 1);
+
+    for (const auto & subset : set_subsets)
+    {
+        set_beg.push_back(subsets_size_total);
+        subsets_size_total += subset.size();
+    }
+    set_beg.push_back(subsets_size_total);
+
+    std::vector<size_t> sets_flattened;
+    sets_flattened.reserve(subsets_size_total);
+
+    for (const auto& subset : set_subsets)
+    {
+        sets_flattened.insert(sets_flattened.end(), subset.begin(), subset.end());
+    }
+
+    assert(sets_flattened.size() == subsets_size_total);
+
+    *set_beg_gpu = copy_to_device(set_beg);
+    *sets_gpu = copy_to_device(sets_flattened);
+}
+
+GpuData::GpuData(const MarkShareFeas &ms_inst, const std::vector<std::vector<size_t>>& set1_subsets, const std::vector<std::vector<size_t>>& set2_subsets, const std::vector<std::vector<size_t>>& set3_subsets, const std::vector<std::vector<size_t>>& set4_subsets, const std::vector<size_t>& asc_indicies_set2_weights, const std::vector<size_t>& desc_indicies_set4_weights) : m_rows(ms_inst.m()), n_cols(ms_inst.n())
+{
+    this->matrix = copy_to_device(ms_inst.A());
+    this->rhs = copy_to_device(ms_inst.b());
+
+    copy_subsets(set1_subsets, &this->set1_subsets, &this->set1_subsets_beg);
+    copy_subsets(set2_subsets, &this->set2_subsets, &this->set2_subsets_beg);
+    copy_subsets(set3_subsets, &this->set3_subsets, &this->set3_subsets_beg);
+    copy_subsets(set4_subsets, &this->set4_subsets, &this->set4_subsets_beg);
+
+    this->asc_indicies_set2_weights = copy_to_device(asc_indicies_set2_weights);
+    this->desc_indicies_set4_weights = copy_to_device(desc_indicies_set4_weights);
+}
+
+GpuData::~GpuData()
+{
+    cudaFree(matrix);
+    cudaFree(rhs);
+}
+
 __global__ void check_sums(const size_t *val1, const size_t *val2, const size_t *rhs, size_t *solution, size_t n_val1, size_t n_val2, size_t m_rhs)
 {
     int i1 = blockIdx.x * blockDim.x + threadIdx.x; // Thread for index i1
@@ -84,23 +140,14 @@ __global__ void encodeVectors(const size_t *vectors, size_t num_vectors, size_t 
     encoded_keys[idx] = key;
 }
 
-template <typename T>
-T *copyToDevice(const std::vector<T> &host_vec)
-{
-    T *device_ptr;
-    cudaMalloc(&device_ptr, host_vec.size() * sizeof(T));
-    cudaMemcpy(device_ptr, host_vec.data(), host_vec.size() * sizeof(T), cudaMemcpyHostToDevice);
-    return device_ptr;
-}
-
-std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu(const MarkShareFeas &ms_inst, const std::vector<size_t> &scores_q1, const std::vector<size_t> &scores_q2, size_t n_q1, size_t n_q2)
+std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu(const GpuData &gpu_data, const std::vector<size_t> &scores_q1, const std::vector<size_t> &scores_q2, size_t n_q1, size_t n_q2)
 {
     size_t result;
-    size_t m = ms_inst.m();
+    size_t* d_rhs = gpu_data.rhs;
+    size_t m = gpu_data.m_rows;
 
-    size_t *d_scores_q1 = copyToDevice(scores_q1);
-    size_t *d_scores_q2 = copyToDevice(scores_q2);
-    size_t *d_rhs = copyToDevice(ms_inst.b());
+    size_t *d_scores_q1 = copy_to_device(scores_q1);
+    size_t *d_scores_q2 = copy_to_device(scores_q2);
 
     size_t *d_solution;
     size_t sol_invalid = scores_q1.size() * scores_q1.size() + 1;
@@ -152,23 +199,31 @@ __global__ void compute_required(const size_t* __restrict__ rhs, const size_t* _
     }
 }
 
-std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(const MarkShareFeas &ms_inst, const std::vector<size_t> &scores_q1, const std::vector<size_t> &scores_q2, size_t n_q1, size_t n_q2)
+void compute_scores_gpu(const GpuData& gpu_data, std::vector<size_t>& scores, const std::vector<std::pair<size_t, size_t>>& pairs, const std::vector<std::vector<size_t>>& pair_first_subsets,
+    const std::vector<std::vector<size_t>>& pair_second_subsets, const std::vector<size_t> pair_second_map, const std::vector<size_t> offsets)
 {
-    const auto &rhs = ms_inst.b();
-    size_t m = ms_inst.m();
+    // size_t* d_scores = copy_to_device(scores);
+    // size_t* d_pair = copy_to_device(pairs);
+    // copy_to_device
+    // copy_to_device
+
+}
+
+std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(const GpuData& gpu_data, const std::vector<size_t> &scores_q1, const std::vector<size_t> &scores_q2, size_t n_q1, size_t n_q2)
+{
+    size_t* d_rhs = gpu_data.rhs;
+    size_t m_rows = gpu_data.m_rows;
 
     auto profiler = std::make_unique<ScopedProfiler>("GPU hash setup");
     thrust::device_vector<size_t> d_required(scores_q1.size());
     thrust::device_vector<size_t> d_scores_q1(scores_q1);
 
-    thrust::device_vector<size_t> d_rhs(rhs);
-
     profiler = std::make_unique<ScopedProfiler>("GPU compute required");
 
     // Configure grid and block sizes
-    dim3 blockDim(128, m);  // 128 threads for i_q1, and each thread handles one value of m
+    dim3 blockDim(128, m_rows);  // 128 threads for i_q1, and each thread handles one value of m
     dim3 gridDim((n_q1 + blockDim.x - 1) / blockDim.x);
-    compute_required<<<gridDim, blockDim>>>(thrust::raw_pointer_cast(d_rhs.data()), thrust::raw_pointer_cast(d_scores_q1.data()), thrust::raw_pointer_cast(d_required.data()), m, n_q1);
+    compute_required<<<gridDim, blockDim>>>(d_rhs, thrust::raw_pointer_cast(d_scores_q1.data()), thrust::raw_pointer_cast(d_required.data()), m_rows, n_q1);
 
     profiler = std::make_unique<ScopedProfiler>("GPU data setup");
 
@@ -185,8 +240,8 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(const 
     profiler = std::make_unique<ScopedProfiler>("GPU encode");
 
     // Encode vectors into keys
-    encodeVectors<<<(n_q1 + 255) / 256, 256>>>(thrust::raw_pointer_cast(d_required.data()), n_q1, m, thrust::raw_pointer_cast(d_keys1.data()));
-    encodeVectors<<<(n_q2 + 255) / 256, 256>>>(thrust::raw_pointer_cast(d_scores_q2.data()), n_q2, m, thrust::raw_pointer_cast(d_keys2.data()));
+    encodeVectors<<<(n_q1 + 255) / 256, 256>>>(thrust::raw_pointer_cast(d_required.data()), n_q1, m_rows, thrust::raw_pointer_cast(d_keys1.data()));
+    encodeVectors<<<(n_q2 + 255) / 256, 256>>>(thrust::raw_pointer_cast(d_scores_q2.data()), n_q2, m_rows, thrust::raw_pointer_cast(d_keys2.data()));
 
     profiler = std::make_unique<ScopedProfiler>("GPU sort");
 
