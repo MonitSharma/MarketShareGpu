@@ -94,21 +94,15 @@ public:
         return true;
     }
 
-    void compute_values(const std::vector<size_t> &indices1, const std::vector<size_t>& indices2, size_t offset1, size_t offset2, size_t *values) const
+    void compute_value(const std::vector<size_t> &indices, size_t offset, size_t *values) const
     {
         for (size_t row = 0; row < m_rows; ++row)
         {
             size_t val = 0;
-            for (size_t i_index1 = 0; i_index1 < indices1.size(); ++i_index1)
+            for (size_t i_idx = 0; i_idx < indices.size(); ++i_idx)
             {
-                size_t i = indices1[i_index1] + offset1;
-                val += matrix[row * n_cols + i];
-            }
-
-            for (size_t i_index2 = 0; i_index2 < indices2.size(); ++i_index2)
-            {
-                size_t i = indices2[i_index2] + offset2;
-                val += matrix[row * n_cols + i];
+                size_t j_col = indices[i_idx] + offset;
+                val += matrix[row * n_cols + j_col];
             }
 
             values[row] = val;

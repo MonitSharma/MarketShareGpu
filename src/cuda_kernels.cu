@@ -48,18 +48,19 @@ static void copy_subsets(const std::vector<std::vector<size_t>>& set_subsets, si
     *sets_gpu = copy_to_device(sets_flattened);
 }
 
-GpuData::GpuData(const MarkShareFeas &ms_inst, const std::vector<std::vector<size_t>>& set1_subsets, const std::vector<std::vector<size_t>>& set2_subsets, const std::vector<std::vector<size_t>>& set3_subsets, const std::vector<std::vector<size_t>>& set4_subsets, const std::vector<size_t>& asc_indices_set2_weights, const std::vector<size_t>& desc_indices_set4_weights) : m_rows(ms_inst.m()), n_cols(ms_inst.n())
+GpuData::GpuData(const MarkShareFeas &ms_inst, const std::vector<std::vector<size_t>>& set1_subsets, const std::vector<size_t>& set1_scores, const std::vector<std::vector<size_t>>& set2_subsets, const std::vector<size_t>& set2_scores, const std::vector<std::vector<size_t>>& set3_subsets, const std::vector<size_t>& set3_scores, const std::vector<std::vector<size_t>>& set4_subsets, const std::vector<size_t>& set4_scores) : m_rows(ms_inst.m()), n_cols(ms_inst.n())
 {
     this->matrix = copy_to_device(ms_inst.A());
     this->rhs = copy_to_device(ms_inst.b());
 
     copy_subsets(set1_subsets, &this->set1_subsets_beg, &this->set1_subsets);
+    this->set1_scores = copy_to_device(set1_scores);
     copy_subsets(set2_subsets, &this->set2_subsets_beg, &this->set2_subsets);
+    this->set2_scores = copy_to_device(set2_scores);
     copy_subsets(set3_subsets, &this->set3_subsets_beg, &this->set3_subsets);
+    this->set3_scores = copy_to_device(set3_scores);
     copy_subsets(set4_subsets, &this->set4_subsets_beg, &this->set4_subsets);
-
-    this->asc_indices_set2_weights = copy_to_device(asc_indices_set2_weights);
-    this->desc_indices_set4_weights = copy_to_device(desc_indices_set4_weights);
+    this->set4_scores = copy_to_device(set4_scores);
 }
 
 GpuData::~GpuData()
@@ -297,62 +298,26 @@ static __device__ void warp_compute_scores_for_pair(const size_t* matrix, const 
     }
 }
 
-
-__global__ void compute_scores_kernel(const size_t* matrix, size_t m_rows, size_t n_cols, const size_t* pairs, size_t n_pairs, const size_t* pair_first_subsets, const size_t* pair_first_subsets_beg, const size_t* pair_second_subsets, const size_t* pair_second_subsets_beg, const size_t* pair_second_map, size_t offset1, size_t offset2, size_t* scores, size_t n_pairs_per_warp)
-{
-    extern __shared__ size_t smem_matrix[];
-
-    int lane_id = get_lane_id();
-    int warp_id = get_warp_id();
-
-    /* Load matrix into shared memory. */
-    for (size_t i_elem = lane_id; i_elem < m_rows * n_cols; i_elem += WARP_SIZE)
-        smem_matrix[i_elem] = matrix[i_elem];
-    __syncthreads();
-
-    const size_t my_first_pair = min(warp_id * n_pairs_per_warp, n_pairs);
-    size_t my_last_pair = min (my_first_pair + n_pairs_per_warp, n_pairs);
-
-    /* Process all pairs assigned to this warp. */
-    for (size_t i_pair = my_first_pair; i_pair < my_last_pair; ++i_pair)
-    {
-        const size_t pair_first = pairs[2 * i_pair];
-        const size_t pair_second = pairs[2 * i_pair + 1];
-
-        /* Subset data for current pair. */
-        const size_t* indices1 = pair_first_subsets + pair_first_subsets_beg[pair_first];
-        size_t indices1_size = pair_first_subsets_beg[pair_first + 1] - pair_first_subsets_beg[pair_first];
-
-        const size_t mapped_second = pair_second_map[pair_second];
-        const size_t* indices2 = pair_second_subsets + pair_second_subsets_beg[mapped_second];
-        size_t indices2_size = pair_second_subsets_beg[mapped_second + 1] - pair_second_subsets_beg[mapped_second];
-
-        size_t* pair_scores = &scores[i_pair * m_rows];
-
-        warp_compute_scores_for_pair(matrix, indices1, indices2, indices1_size, indices2_size, pair_scores, m_rows, n_cols, offset1, offset2);
-    }
-}
-
-void compute_scores_gpu(const GpuData& gpu_data, std::vector<size_t>& scores, const std::vector<std::pair<size_t, size_t>>& pairs, const std::vector<size_t> offsets, bool first_sets)
+void combing_scores_gpu(const GpuData& gpu_data, std::vector<size_t>& scores, const std::vector<std::pair<size_t, size_t>>& pairs, const std::vector<size_t> offsets, bool first_sets)
 {
     size_t* d_scores = copy_to_device(scores);
     size_t* d_pairs;
     cudaMalloc(&d_pairs, pairs.size() * 2 * sizeof(size_t));
     cudaMemcpy(d_pairs, pairs.data(), pairs.size() * 2 * sizeof(size_t), cudaMemcpyHostToDevice);
 
-    size_t* d_first_subsets = first_sets ?  gpu_data.set1_subsets : gpu_data.set3_subsets;
-    size_t* d_first_subsets_beg = first_sets ?  gpu_data.set1_subsets_beg : gpu_data.set3_subsets_beg;
-    size_t* d_second_subsets = first_sets ?  gpu_data.set2_subsets : gpu_data.set4_subsets;
-    size_t* d_second_subsets_beg = first_sets ?  gpu_data.set2_subsets_beg : gpu_data.set4_subsets_beg;
-    size_t* d_pair_second_map = first_sets ? gpu_data.asc_indices_set2_weights : gpu_data.desc_indices_set4_weights;
+    // size_t* d_first_subsets = first_sets ?  gpu_data.set1_subsets : gpu_data.set3_subsets;
+    // size_t* d_first_subsets_beg = first_sets ?  gpu_data.set1_subsets_beg : gpu_data.set3_subsets_beg;
+    // size_t* d_second_subsets = first_sets ?  gpu_data.set2_subsets : gpu_data.set4_subsets;
+    // size_t* d_second_subsets_beg = first_sets ?  gpu_data.set2_subsets_beg : gpu_data.set4_subsets_beg;
+    // size_t* d_pair_second_map = first_sets ? gpu_data.asc_indices_set2_weights : gpu_data.desc_indices_set4_weights;
 
-    const int n_pairs_per_warp = 500;
-    const int n_blocks = (pairs.size() + n_pairs_per_warp - 1) / n_pairs_per_warp;
-    size_t shared_mem_size = gpu_data.m_rows * gpu_data.n_cols * sizeof(size_t);
+    // const int n_pairs_per_warp = 500;
+    // const int n_blocks = (pairs.size() + n_pairs_per_warp - 1) / n_pairs_per_warp;
+    // size_t shared_mem_size = gpu_data.m_rows * gpu_data.n_cols * sizeof(size_t);
 
-    compute_scores_kernel<<<n_blocks, 32, shared_mem_size>>>(gpu_data.matrix, gpu_data.m_rows, gpu_data.n_cols, d_pairs, pairs.size(), d_first_subsets, d_first_subsets_beg, d_second_subsets, d_second_subsets_beg, d_pair_second_map, offsets[0], offsets[1], d_scores, n_pairs_per_warp);
+    // compute_scores_kernel<<<n_blocks, 32, shared_mem_size>>>(gpu_data.matrix, gpu_data.m_rows, gpu_data.n_cols, d_pairs, pairs.size(), d_first_subsets, d_first_subsets_beg, d_second_subsets, d_second_subsets_beg, d_pair_second_map, offsets[0], offsets[1], d_scores, n_pairs_per_warp);
 
-    cudaMemcpy(scores.data(), d_scores, scores.size() * sizeof(size_t), cudaMemcpyDeviceToHost);
+    // cudaMemcpy(scores.data(), d_scores, scores.size() * sizeof(size_t), cudaMemcpyDeviceToHost);
 
     cudaFree(d_scores);
     cudaFree(d_pairs);
@@ -362,6 +327,8 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(const 
 {
     size_t* d_rhs = gpu_data.rhs;
     size_t m_rows = gpu_data.m_rows;
+
+    assert(m_rows > 0);
 
     auto profiler = std::make_unique<ScopedProfiler>("GPU hash setup");
     thrust::device_vector<size_t> d_required(scores_q1.size());
