@@ -310,13 +310,12 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(GpuDat
 
     profiler = std::make_unique<ScopedProfiler>("Check results");
 
-    std::vector<size_t> result(n_q2);
-    cudaMemcpy(result.data(), gpu_data.result, n_q2 * sizeof(size_t), cudaMemcpyDeviceToHost);
+    thrust::device_ptr<size_t> result_ptr(gpu_data.result);
+    auto iter = thrust::find(result_ptr, result_ptr + n_q2, 1);
 
-    for (size_t i_q2 = 0; i_q2 < n_q2; ++i_q2)
+    if (iter != result_ptr + n_q2)
     {
-        if (!result[i_q2])
-            continue;
+        size_t i_q2 = thrust::distance(result_ptr, iter);
 
         __int128_t val = 0;
         cudaMemcpy(&val, gpu_data.keys_buffer2 + i_q2, sizeof(__int128_t), cudaMemcpyDeviceToHost);
