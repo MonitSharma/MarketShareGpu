@@ -21,33 +21,6 @@ T *copy_to_device(const std::vector<T> &host_vec)
     return device_ptr;
 }
 
-static void copy_subsets(const std::vector<std::vector<size_t>> &set_subsets, size_t **set_beg_gpu, size_t **sets_gpu)
-{
-    size_t subsets_size_total = 0;
-    std::vector<size_t> set_beg;
-    set_beg.reserve(set_subsets.size() + 1);
-
-    for (const auto &subset : set_subsets)
-    {
-        set_beg.push_back(subsets_size_total);
-        subsets_size_total += subset.size();
-    }
-    set_beg.push_back(subsets_size_total);
-
-    std::vector<size_t> sets_flattened;
-    sets_flattened.reserve(subsets_size_total);
-
-    for (const auto &subset : set_subsets)
-    {
-        sets_flattened.insert(sets_flattened.end(), subset.begin(), subset.end());
-    }
-
-    assert(sets_flattened.size() == subsets_size_total);
-
-    *set_beg_gpu = copy_to_device(set_beg);
-    *sets_gpu = copy_to_device(sets_flattened);
-}
-
 GpuData::GpuData(const MarkShareFeas &ms_inst, const std::vector<size_t> &set1_scores, const std::vector<size_t> &set2_scores, const std::vector<size_t> &set3_scores, const std::vector<size_t> &set4_scores) : m_rows(ms_inst.m()), n_cols(ms_inst.n())
 {
     this->matrix = copy_to_device(ms_inst.A());
@@ -101,6 +74,43 @@ void GpuData::init_scores_buffer(size_t n_pairs, bool first_buffer)
     }
 
     assert(!((first_buffer && len_required > len_scores_buffer1) || (!first_buffer && len_required > len_scores_buffer2)));
+}
+
+void GpuData::init_keys_buffer(size_t n_keys, bool first_buffer)
+{
+    size_t len_required = n_keys;
+
+    if ((first_buffer && len_required > len_keys_buffer1) || (!first_buffer && len_required > len_keys_buffer2))
+    {
+        size_t new_len = static_cast<size_t>(len_required * 1.4 + 1);
+        assert(new_len > len_required);
+
+        if (first_buffer)
+        {
+            /* Also allocate the indices array here! */
+            if (len_keys_buffer1 > 0)
+            {
+                cudaFree(keys_buffer1);
+                cudaFree(indices_keys_buffer1);
+            }
+            cudaMalloc(&keys_buffer1, new_len * sizeof(__int128_t));
+            cudaMalloc(&indices_keys_buffer1, new_len * sizeof(size_t));
+            len_keys_buffer1 = new_len;
+        }
+        else
+        {
+            if (len_keys_buffer2 > 0)
+            {
+                cudaFree(keys_buffer2);
+                cudaFree(result);
+            }
+            cudaMalloc(&keys_buffer2, new_len * sizeof(__int128_t));
+            cudaMalloc(&result, new_len * sizeof(size_t));
+            len_keys_buffer2 = new_len;
+        }
+    }
+
+    assert(!((first_buffer && len_required > len_keys_buffer1) || (!first_buffer && len_required > len_keys_buffer2)));
 }
 
 void GpuData::copy_pairs(const std::vector<std::pair<size_t, size_t>> &pairs, bool first_buffer)
@@ -258,9 +268,8 @@ void combine_scores_gpu(GpuData &gpu_data, const std::vector<std::pair<size_t, s
     }
 }
 
-std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(const GpuData &gpu_data, size_t n_q1, size_t n_q2)
+std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(GpuData &gpu_data, size_t n_q1, size_t n_q2)
 {
-    size_t *d_rhs = gpu_data.rhs;
     size_t m_rows = gpu_data.m_rows;
 
     assert(m_rows > 0);
@@ -273,50 +282,54 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(const 
     int block_dim = 128;
     int n_blocks = (n_q1 * gpu_data.m_rows + block_dim - 1) / block_dim;
 
-    // dim3 blockDim(128, m_rows); // 128 threads for i_q1, and each thread handles one value of m
-    // dim3 gridDim((n_q1 + blockDim.x - 1) / blockDim.x);
-    compute_required<<<n_blocks, block_dim>>>(d_rhs, gpu_data.scores_buffer1, m_rows, n_q1);
+    compute_required<<<n_blocks, block_dim>>>(gpu_data.rhs, gpu_data.scores_buffer1, m_rows, n_q1);
 
     profiler = std::make_unique<ScopedProfiler>("GPU data setup");
 
     // THE ALGORITHM!
     // Allocate encoded key arrays on the GPU
-    thrust::device_vector<__int128_t> d_keys1(n_q1);
-    thrust::device_vector<__int128_t> d_keys2(n_q2);
+    gpu_data.init_keys_buffer(n_q1, true);
+    gpu_data.init_keys_buffer(n_q2, false);
 
-    thrust::device_vector<size_t> d_indices(n_q1);
-    thrust::sequence(d_indices.begin(), d_indices.end());
+    thrust::sequence(thrust::device, gpu_data.indices_keys_buffer1, gpu_data.indices_keys_buffer1 + n_q1);
 
     profiler = std::make_unique<ScopedProfiler>("GPU encode");
 
     // Encode vectors into keys
-    encodeVectors<<<(n_q1 + 255) / 256, 256>>>(gpu_data.scores_buffer1, n_q1, m_rows, thrust::raw_pointer_cast(d_keys1.data()));
-    encodeVectors<<<(n_q2 + 255) / 256, 256>>>(gpu_data.scores_buffer2, n_q2, m_rows, thrust::raw_pointer_cast(d_keys2.data()));
+    encodeVectors<<<(n_q1 + 255) / 256, 256>>>(gpu_data.scores_buffer1, n_q1, m_rows, gpu_data.keys_buffer1);
+    encodeVectors<<<(n_q2 + 255) / 256, 256>>>(gpu_data.scores_buffer2, n_q2, m_rows, gpu_data.keys_buffer2);
 
     profiler = std::make_unique<ScopedProfiler>("GPU sort");
 
     // Sort the keys from l1
-    thrust::sort_by_key(d_keys1.begin(), d_keys1.end(), d_indices.begin());
+    thrust::sort_by_key(thrust::device, gpu_data.keys_buffer1, gpu_data.keys_buffer1 + n_q1, gpu_data.indices_keys_buffer1);
 
     profiler = std::make_unique<ScopedProfiler>("GPU search");
 
-    thrust::device_vector<bool> d_result(n_q2);
-    thrust::binary_search(thrust::device, d_keys1.begin(), d_keys1.end(), d_keys2.begin(), d_keys2.end(), d_result.begin());
+    thrust::binary_search(thrust::device, gpu_data.keys_buffer1, gpu_data.keys_buffer1 + n_q1, gpu_data.keys_buffer2, gpu_data.keys_buffer2 + n_q2, gpu_data.result);
 
     profiler = std::make_unique<ScopedProfiler>("Check results");
-    thrust::host_vector<bool> result = d_result;
+
+    std::vector<size_t> result(n_q2);
+    cudaMemcpy(result.data(), gpu_data.result, n_q2 * sizeof(size_t), cudaMemcpyDeviceToHost);
 
     for (size_t i_q2 = 0; i_q2 < n_q2; ++i_q2)
     {
         if (!result[i_q2])
             continue;
 
-        thrust::host_vector<size_t> indices = d_indices;
+        __int128_t val = 0;
+        cudaMemcpy(&val, gpu_data.keys_buffer2 + i_q2, sizeof(__int128_t), cudaMemcpyDeviceToHost);
+
         /* Retrieve i_q1. */
-        auto iter = thrust::find(d_keys1.begin(), d_keys1.end(), d_keys2[i_q2]);
+        auto iter = thrust::find(thrust::device, gpu_data.keys_buffer1, gpu_data.keys_buffer1 + n_q1, val);
         profiler.reset();
 
-        return {true, {indices[thrust::distance(d_keys1.begin(), iter)], i_q2}};
+        size_t pos_i_q1 = thrust::distance(gpu_data.keys_buffer1, iter);
+        size_t i_q1 = 0;
+        cudaMemcpy(&i_q1, gpu_data.indices_keys_buffer1 + pos_i_q1, sizeof(size_t), cudaMemcpyDeviceToHost);
+
+        return {true, {i_q1, i_q2}};
     }
     profiler.reset();
 

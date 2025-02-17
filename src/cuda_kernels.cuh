@@ -35,10 +35,19 @@ public:
     size_t *pairs_buffer2{};
     size_t len_pairs_buffer2{};
 
+    __int128_t *keys_buffer1{};
+    size_t *indices_keys_buffer1{};
+    size_t len_keys_buffer1{};
+
+    __int128_t *keys_buffer2{};
+    size_t *result{};
+    size_t len_keys_buffer2{};
+
+    void init_keys_buffer(size_t n_keys, bool first_buffer);
     void init_scores_buffer(size_t n_pairs, bool first_buffer);
     void copy_pairs(const std::vector<std::pair<size_t, size_t>> &pairs, bool first_buffer);
 };
 
-std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(const GpuData &gpu_data, size_t n_q1, size_t n_q2);
+std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(GpuData &gpu_data, size_t n_q1, size_t n_q2);
 
 void combine_scores_gpu(GpuData &gpu_data, const std::vector<std::pair<size_t, size_t>> &pairs, bool first_buffer);
