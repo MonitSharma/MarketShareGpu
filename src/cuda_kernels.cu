@@ -284,7 +284,7 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(GpuDat
     auto profiler = std::make_unique<ScopedProfiler>("Eval GPU: compute required  ");
 
     int block_dim = 128;
-    int n_blocks = (n_q1 * gpu_data.m_rows + block_dim - 1) / block_dim;
+    int n_blocks = (n_required * gpu_data.m_rows + block_dim - 1) / block_dim;
     compute_required<<<n_blocks, block_dim>>>(gpu_data.rhs, buffer_required, m_rows, n_required);
 
     profiler = std::make_unique<ScopedProfiler>("Eval GPU: data setup        ");
@@ -299,8 +299,8 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(GpuDat
     profiler = std::make_unique<ScopedProfiler>("Eval GPU: encode            ");
 
     // Encode vectors into keys
-    encodeVectors<<<(n_q1 + 255) / 256, 256>>>(buffer_required, n_required, m_rows, gpu_data.keys_buffer1);
-    encodeVectors<<<(n_q2 + 255) / 256, 256>>>(buffer_search, n_search, m_rows, gpu_data.keys_buffer2);
+    encodeVectors<<<(n_required + 255) / 256, 256>>>(buffer_required, n_required, m_rows, gpu_data.keys_buffer1);
+    encodeVectors<<<(n_search + 255) / 256, 256>>>(buffer_search, n_search, m_rows, gpu_data.keys_buffer2);
 
     profiler = std::make_unique<ScopedProfiler>("Eval GPU: sort              ");
 

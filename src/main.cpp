@@ -478,6 +478,8 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
     const size_t split_index2 = subset_sum_1d.size() / 2;
     const size_t split_index3 = 3 * subset_sum_1d.size() / 4;
 
+    printf("Splitting sets into [0, %ld]; [%ld, %ld]; [%ld, %ld]; [%ld, %ld]\n", split_index1 - 1, split_index1, split_index2 - 1, split_index2, split_index3 - 1, split_index3, subset_sum_1d.size());
+
     std::cout << "Running with " << omp_get_max_threads() << " threads" << std::endl;
     auto profiler = std::make_unique<ScopedProfiler>("Setup time                  ");
     auto profilerTotal = std::make_unique<ScopedProfiler>("Solution time               ");
