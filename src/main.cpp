@@ -10,6 +10,7 @@
 #include <climits> // For CHAR_BIT
 #include <cstddef>
 #include <execution>
+#include <fstream>
 #include <iostream>
 #include <numeric>
 #include <queue>
@@ -298,6 +299,32 @@ void print_four_list_solution(size_t index_list1, size_t index_list2, size_t ind
     std::cout << "The sum is " << sum1 << " + " << sum2 << " + " << sum3 << " + " << sum4 << " = " << sum1 + sum2 + sum3 + sum4 << std::endl;
 }
 
+void append_solution_to_file(std::ofstream &sol_file, const std::vector<size_t> &numbers, size_t index)
+{
+    for (size_t i = 0; i < numbers.size(); ++i)
+    {
+        // Check if the i-th bit in the index is set
+        if (index & (1ULL << i))
+            sol_file << 1;
+        else
+            sol_file << 0;
+    }
+}
+
+void write_four_list_solution_to_file(size_t index_list1, size_t index_list2, size_t index_list3, size_t index_list4, const std::vector<size_t> &list1, const std::vector<size_t> &list2, const std::vector<size_t> &list3, const std::vector<size_t> &list4, const std::string &instance_name)
+{
+    const std::string sol_name = instance_name + ".sol";
+    printf("Writing solution to %s\n", sol_name.c_str());
+    std::ofstream sol_file(sol_name);
+
+    append_solution_to_file(sol_file, list1, index_list1);
+    append_solution_to_file(sol_file, list2, index_list2);
+    append_solution_to_file(sol_file, list3, index_list3);
+    append_solution_to_file(sol_file, list4, index_list4);
+
+    sol_file << std::endl;
+}
+
 std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_cpu(const MarkShareFeas &ms_inst, const std::vector<bool> &feas_q1, const std::vector<bool> &feas_q2, const std::vector<size_t> &scores_q1, const std::vector<size_t> &scores_q2, size_t n_q1, size_t n_q2)
 {
     bool done = false;
@@ -438,7 +465,7 @@ void combine_scores_cpu(const std::vector<size_t> &set1_scores, const std::vecto
     }
 }
 
-bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subset_sum_1d, const MarkShareFeas &ms_inst, bool run_on_gpu)
+bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subset_sum_1d, const MarkShareFeas &ms_inst, bool run_on_gpu, const std::string &instance_name)
 {
     const size_t split_index1 = subset_sum_1d.size() / 4;
     const size_t split_index2 = subset_sum_1d.size() / 2;
@@ -645,10 +672,16 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
 
             /* We found a solution. Construct it, print it, and return. */
             if (!ms_inst.is_solution_feasible(solution_1d, len))
+            {
                 printf("Error, solution is not feasible!\n");
-            printf("Found market share solution from SS-Algorithm!\n");
+                exit(1);
+            }
 
+            printf("Found market share solution from SS-Algorithm!\n");
             print_four_list_solution(pair_q1.first, asc_indices_set2_weights[pair_q1.second], pair_q2.first, desc_indices_set4_weights[pair_q2.second], list1, list2, list3, list4);
+
+            if (!instance_name.empty())
+                write_four_list_solution_to_file(pair_q1.first, asc_indices_set2_weights[pair_q1.second], pair_q2.first, desc_indices_set4_weights[pair_q2.second], list1, list2, list3, list4, instance_name);
             return true;
         }
         else if (score < rhs_subset_sum_1d)
@@ -686,10 +719,25 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
     return false;
 }
 
+std::string get_filename_without_extension(const std::string &filePath)
+{
+    // Find the last path separator '/'
+    size_t lastSlash = filePath.find_last_of('/');
+    size_t start = (lastSlash == std::string::npos) ? 0 : lastSlash + 1;
+
+    // Find the last dot after the last slash
+    size_t lastDot = filePath.find_last_of('.');
+    size_t end = (lastDot == std::string::npos || lastDot < start) ? filePath.length() : lastDot;
+
+    // Extract the filename without extension
+    return filePath.substr(start, end - start);
+}
+
 int main(int argc, char *argv[])
 {
     argparse::ArgumentParser program("markshare");
 
+    std::string path = "";
     size_t n_iter = 1;
     size_t seed = 2025;
     size_t m = 5;
@@ -697,8 +745,7 @@ int main(int argc, char *argv[])
 
     program.add_argument("-m", "--m")
         .store_into(m)
-        .help("Number of rows of the markshare problem.")
-        .required();
+        .help("Number of rows of the markshare problem.");
 
     program.add_argument("-n", "--n")
         .store_into(n)
@@ -719,6 +766,10 @@ int main(int argc, char *argv[])
         .help("Run validation on GPU")
         .flag();
 
+    program.add_argument("-f", "--file")
+        .store_into(path)
+        .help("Supply instance path to read instance from. Overrides '-m', '-n', and '-i'");
+
     try
     {
         program.parse_args(argc, argv);
@@ -736,14 +787,25 @@ int main(int argc, char *argv[])
 
     for (size_t i_iter = 0; i_iter < n_iter; ++i_iter)
     {
+        std::string instance_name{};
         const size_t seed_iter = seed + i_iter;
-        printf("Running markshare: m=%ld, n=%ld, seed=%ld, iter=%ld, nthread=%d\n", m, n, seed_iter, i_iter, omp_get_max_threads());
 
+        MarkShareFeas instance;
         /* Generate/read instance. For now, random instances. */
-        MarkShareFeas instance(m, n, seed_iter);
-
-        const std::string filename = "markshare_m_" + std::to_string(m) + "_n_" + std::to_string(n) + "_seed_" + std::to_string(seed_iter) + ".prb";
-        instance.write_as_prb(filename);
+        if (!path.empty())
+        {
+            instance_name = get_filename_without_extension(path);
+            printf("Reading instance from file %s; instance_name %s\n", path.c_str(), instance_name.c_str());
+            instance = MarkShareFeas(path);
+        }
+        else
+        {
+            instance = MarkShareFeas(m, n, seed_iter);
+            instance_name = "markshare_m_" + std::to_string(m) + "_n_" + std::to_string(n) + "_seed_" + std::to_string(seed_iter);
+            instance.write_as_prb(instance_name + ".prb");
+        }
+        printf("Running markshare: m=%ld, n=%ld, seed=%ld, iter=%ld, nthread=%d\n", instance.m(), instance.n(), seed_iter, i_iter, omp_get_max_threads());
+        instance.print();
 
         // MarkShareFeas instance(4, 10 * 3, {72, 30, 67, 47, 91, 83, 67, 35, 11, 35, 35, 73, 84, 46, 37, 44, 73, 33, 29, 82, 55, 1, 65, 21, 89, 54, 81, 67, 68, 43, 49, 11, 62, 38, 58, 5, 98, 20, 79, 89, 14, 14, 43, 57, 53, 51, 65, 66, 71, 19, 0, 11, 31, 39, 66, 95, 27, 35, 10, 80, 3, 3, 72, 49, 48, 46, 43, 48, 73, 42, 25, 10, 34, 64, 46, 37, 1, 10, 18, 38, 5, 18, 58, 52, 30, 82, 76, 33, 65, 56, 69, 75, 79, 93, 21, 59, 27, 29, 32, 57, 78, 37, 13, 65, 96, 0, 18, 24, 21, 90, 88, 49, 55, 0, 30, 27, 99, 48, 66, 79}, {809, 678, 592, 762});
         /* Solution is [1 0 1 0 1 0 0 0 1 0 0 1 0 1 0 1 0 1 0 1 1 1 0 1 1 0 1 0 0 1] */
@@ -757,7 +819,7 @@ int main(int argc, char *argv[])
         // two_list_algorithm(subset_sum_1d, rhs_subset_sum_1d);
 
         /* Shroeppel-Shamir */
-        if (shroeppel_shamir(subset_sum_1d, rhs_subset_sum_1d, instance, program["--gpu"] == true))
+        if (shroeppel_shamir(subset_sum_1d, rhs_subset_sum_1d, instance, program["--gpu"] == true, instance_name))
         {
             printf("Actually found something!\n");
             break;

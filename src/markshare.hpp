@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cassert>
+#include <fstream>
 #include <iostream>
 #include <random>
 #include <vector>
@@ -11,6 +12,13 @@
 class MarkShareFeas
 {
 public:
+    MarkShareFeas() = default;
+    ~MarkShareFeas() = default;
+    MarkShareFeas(MarkShareFeas &&) noexcept = default;
+    MarkShareFeas &operator=(MarkShareFeas &&) = default;
+    MarkShareFeas &operator=(const MarkShareFeas &) = default;
+    MarkShareFeas(const MarkShareFeas &) = default;
+
     MarkShareFeas(size_t m, size_t n, std::vector<size_t> &&A, std::vector<size_t> &&b) : matrix(std::move(A)), rhs(std::move(b)), m_rows(m), n_cols(n)
     {
         assert(matrix.size() == m * n);
@@ -61,6 +69,48 @@ public:
 
     /* Generates a market share feasibility instance with n = 10 * (m - 1). */
     MarkShareFeas(size_t m, size_t seed = 0) : MarkShareFeas(m, 10 * (m - 1), seed) {};
+
+    /* Read a MarkShareInstance from file. The format supported is
+     * +++++++++++++++++++++++++++++++++++++++
+     * m n
+     * a11 a12 a13 ... a1n b1
+     * a21 a22 ...     a2n b2
+     *  .               .  .
+     *  .               .  .
+     *  .               .  .
+     * am1 am2 am3     amn bm
+     * +++++++++++++++++++++++++++++++++++++++
+     */
+    MarkShareFeas(const std::string instance_path)
+    {
+        std::ifstream file(instance_path);
+        if (!file.is_open())
+        {
+            throw std::runtime_error("Could not open file");
+        }
+
+        /* Read the first line to get m and n. */
+        file >> m_rows >> n_cols;
+
+        matrix.reserve(m_rows * n_cols);
+        rhs.reserve(m_rows);
+
+        /* Read the matrix rows and right hand side. */
+        for (size_t i_row = 0; i_row < m_rows; ++i_row)
+        {
+            for (size_t j_col = 0; j_col < n_cols; ++j_col)
+            {
+                size_t value;
+                file >> value;
+                matrix.push_back(value);
+            }
+
+            size_t rhs_val;
+            file >> rhs_val;
+
+            rhs.push_back(rhs_val);
+        }
+    };
 
     const std::vector<size_t> &A() const
     {
@@ -134,6 +184,22 @@ public:
         return true;
     }
 
+    void print() const
+    {
+        std::cout << "[\n";
+        /* Write the matrix. */
+        for (size_t row = 0; row < m_rows; ++row)
+        {
+            std::cout << "[";
+            for (size_t col = 0; col < n_cols; ++col)
+            {
+                std::cout << " " << matrix[row * n_cols + col];
+            }
+            std::cout << "\t" << rhs[row] << " ]\n";
+        }
+        std::cout << "]\n";
+    }
+
     void write_as_prb(const std::string &name) const
     {
         std::cout << "Storing mark share instance as " << name << "\n";
@@ -187,6 +253,6 @@ public:
 private:
     std::vector<size_t> matrix;
     std::vector<size_t> rhs;
-    const size_t m_rows;
-    const size_t n_cols;
+    size_t m_rows;
+    size_t n_cols;
 };
