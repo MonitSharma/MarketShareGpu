@@ -583,51 +583,58 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
             auto profiler_inside_loop = std::make_unique<ScopedProfiler>("Candidate extraction        ");
 
             /* For each element a in q1 with score(a) == score_pair1, collect all solutions. */
-            while (!q1.empty() && set1_weights[q1.top().first] + set2_weights_sorted_asc[q1.top().second] == score_pair1)
+#pragma omp parallel sections num_threads(2)
             {
-                const auto pair1_same_score = q1.top();
-                size_t pos_set2_weights = pair1_same_score.second;
-
-                /* Iterate the second elements. */
-                const auto pos2_val = set2_weights_sorted_asc[pos_set2_weights];
-
-                while (pos_set2_weights < set2_weights.size() && pos2_val == set2_weights_sorted_asc[pos_set2_weights])
+#pragma omp section
                 {
-                    same_score_q1.emplace_back(pair1_same_score.first, pos_set2_weights);
-                    ++pos_set2_weights;
+                    while (!q1.empty() && set1_weights[q1.top().first] + set2_weights_sorted_asc[q1.top().second] == score_pair1)
+                    {
+                        const auto pair1_same_score = q1.top();
+                        size_t pos_set2_weights = pair1_same_score.second;
+
+                        /* Iterate the second elements. */
+                        const auto pos2_val = set2_weights_sorted_asc[pos_set2_weights];
+
+                        while (pos_set2_weights < set2_weights.size() && pos2_val == set2_weights_sorted_asc[pos_set2_weights])
+                        {
+                            same_score_q1.emplace_back(pair1_same_score.first, pos_set2_weights);
+                            ++pos_set2_weights;
+                        }
+
+                        q1.pop();
+                        if (pos_set2_weights < set2_weights.size())
+                        {
+                            assert(score_pair1 < set1_weights[pair1_same_score.first] + set2_weights_sorted_asc[pos_set2_weights]);
+                            q1.emplace(pair1_same_score.first, pos_set2_weights);
+                        }
+                    }
                 }
-
-                q1.pop();
-                if (pos_set2_weights < set2_weights.size())
+#pragma omp section
                 {
-                    assert(score_pair1 < set1_weights[pair1_same_score.first] + set2_weights_sorted_asc[pos_set2_weights]);
-                    q1.emplace(pair1_same_score.first, pos_set2_weights);
+                    /* For each element a in q2 with score(a) == score_pair2, collect all solutions. */
+                    while (!q2.empty() && set3_weights[q2.top().first] + set4_weights_sorted_desc[q2.top().second] == score_pair2)
+                    {
+                        const auto pair2_same_score = q2.top();
+                        size_t pos_set4_weights = pair2_same_score.second;
+
+                        /* Iterate the second elements. */
+                        const auto pos4_val = set4_weights_sorted_desc[pos_set4_weights];
+
+                        while (pos_set4_weights < set4_weights.size() && pos4_val == set4_weights_sorted_desc[pos_set4_weights])
+                        {
+                            same_score_q2.emplace_back(pair2_same_score.first, pos_set4_weights);
+                            ++pos_set4_weights;
+                        }
+
+                        q2.pop();
+                        if (pos_set4_weights < set4_weights.size())
+                        {
+                            assert(score_pair2 > set3_weights[pair2_same_score.first] + set4_weights_sorted_desc[pos_set4_weights]);
+                            q2.emplace(pair2_same_score.first, pos_set4_weights);
+                        }
+                    }
                 }
             }
-
-            /* For each element a in q2 with score(a) == score_pair2, collect all solutions. */
-            while (!q2.empty() && set3_weights[q2.top().first] + set4_weights_sorted_desc[q2.top().second] == score_pair2)
-            {
-                const auto pair2_same_score = q2.top();
-                size_t pos_set4_weights = pair2_same_score.second;
-
-                /* Iterate the second elements. */
-                const auto pos4_val = set4_weights_sorted_desc[pos_set4_weights];
-
-                while (pos_set4_weights < set4_weights.size() && pos4_val == set4_weights_sorted_desc[pos_set4_weights])
-                {
-                    same_score_q2.emplace_back(pair2_same_score.first, pos_set4_weights);
-                    ++pos_set4_weights;
-                }
-
-                q2.pop();
-                if (pos_set4_weights < set4_weights.size())
-                {
-                    assert(score_pair2 > set3_weights[pair2_same_score.first] + set4_weights_sorted_desc[pos_set4_weights]);
-                    q2.emplace(pair2_same_score.first, pos_set4_weights);
-                }
-            }
-
             profiler_inside_loop = std::make_unique<ScopedProfiler>("Combine scores              ");
 
             print_info_line(i_iter_checking, profilerTotal->elapsed(), score_pair1, score_pair2, same_score_q1.size(), same_score_q2.size());
