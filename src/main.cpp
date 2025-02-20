@@ -387,57 +387,48 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_cpu_hashing(const 
     bool done = false;
     std::pair<size_t, size_t> solution_indices = {n_q1, n_q2};
 
+    auto profiler = std::make_unique<ScopedProfiler>("Eval CPU:  Hash table setup");
+    for (size_t i_q1 = 0; i_q1 < n_q1; ++i_q1)
     {
-        auto profiler = std::make_unique<ScopedProfiler>("Hash table setup");
-        for (size_t i_q1 = 0; i_q1 < n_q1; ++i_q1)
+        for (size_t j = 0; j < len_vec; ++j)
         {
-            for (size_t j = 0; j < len_vec; ++j)
-            {
-                needed[j] = ms_inst.b()[j] - scores_q1[i_q1 * len_vec + j];
-            }
-
-            __int128_t needed_key = encode_vector(needed.data(), len_vec);
-            hashTable[needed_key] = i_q1;
+            needed[j] = ms_inst.b()[j] - scores_q1[i_q1 * len_vec + j];
         }
 
-        profiler.reset();
+        __int128_t needed_key = encode_vector(needed.data(), len_vec);
+        hashTable[needed_key] = i_q1;
     }
 
-    {
-        auto profiler = std::make_unique<ScopedProfiler>("Hash table search");
-        {
+    profiler = std::make_unique<ScopedProfiler>("Eval CPU: Hash table search");
 #pragma omp parallel shared(done)
 #pragma omp for
-            for (size_t i_q2 = 0; i_q2 < n_q2; ++i_q2)
-            {
-                if (done)
-                {
+    for (size_t i_q2 = 0; i_q2 < n_q2; ++i_q2)
+    {
+        if (done)
+        {
 #pragma omp cancel for
-                }
-
-                __int128_t given_key = encode_vector(scores_q2.data() + i_q2 * len_vec, len_vec);
-
-                if (hashTable.find(given_key) != hashTable.end())
-                {
-                    /* Found a feasible solution! */
-#pragma omp critical
-                    {
-                        if (!done)
-                        {
-                            printf("Found with hashing!\n");
-                            const size_t i_q1 = hashTable[given_key];
-                            done = true;
-                            solution_indices = {i_q1, i_q2};
-                        }
-                    }
-#pragma omp flush(done)
-#pragma omp cancel for
-                }
-            }
         }
 
-        profiler.reset();
+        __int128_t given_key = encode_vector(scores_q2.data() + i_q2 * len_vec, len_vec);
+
+        if (hashTable.find(given_key) != hashTable.end())
+        {
+            /* Found a feasible solution! */
+#pragma omp critical
+            {
+                if (!done)
+                {
+                    const size_t i_q1 = hashTable[given_key];
+                    done = true;
+                    solution_indices = {i_q1, i_q2};
+                }
+            }
+#pragma omp flush(done)
+#pragma omp cancel for
+        }
     }
+
+    profiler.reset();
 
     return {done, solution_indices};
 }
@@ -465,6 +456,22 @@ void combine_scores_cpu(const std::vector<size_t> &set1_scores, const std::vecto
     }
 }
 
+void print_info_line(size_t i_iter, double time, size_t score1, size_t score2, size_t n_q1, size_t n_q2)
+{
+    bool print = false;
+    if (i_iter < 10)
+        print = true;
+    else if (i_iter < 100 && i_iter % 10 == 0)
+        print = true;
+    else if (i_iter % 100 == 0)
+        print = true;
+
+    if (print)
+    {
+        printf("%5ld %8.2fs : %6ld + %6ld; %ld x %ld = %ld possible solutions\n", i_iter, time, score1, score2, n_q1, n_q2, n_q1 * n_q2);
+    }
+}
+
 bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subset_sum_1d, const MarkShareFeas &ms_inst, bool run_on_gpu, const std::string &instance_name)
 {
     const size_t split_index1 = subset_sum_1d.size() / 4;
@@ -472,7 +479,8 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
     const size_t split_index3 = 3 * subset_sum_1d.size() / 4;
 
     std::cout << "Running with " << omp_get_max_threads() << " threads" << std::endl;
-    auto profiler = std::make_unique<ScopedProfiler>("Shroeppel Shamir setup time");
+    auto profiler = std::make_unique<ScopedProfiler>("Setup time                  ");
+    auto profilerTotal = std::make_unique<ScopedProfiler>("Solution time               ");
 
     /* Get 4 sublists. */
     std::vector<size_t> list1(subset_sum_1d.begin(), subset_sum_1d.begin() + split_index1);
@@ -528,6 +536,10 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
         return set3_weights[a1.first] + set4_weights_sorted_desc[a1.second] < set3_weights[a2.first] + set4_weights_sorted_desc[a2.second];
     };
 
+    /* Vectors used to count the number of elements extracted from q1/q2 with the same solution value. */
+    std::vector<std::pair<size_t, size_t>> same_score_q1;
+    std::vector<std::pair<size_t, size_t>> same_score_q2;
+
     std::priority_queue<std::pair<size_t, size_t>, std::vector<std::pair<size_t, size_t>>, decltype(min_cmp)> q1(min_cmp);
     std::priority_queue<std::pair<size_t, size_t>, std::vector<std::pair<size_t, size_t>>, decltype(max_cmp)> q2(max_cmp);
 
@@ -544,10 +556,11 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
     for (size_t i = 0; i < set3_weights.size(); ++i)
         q2.emplace(i, 0);
 
-    printf("Running the search loop\n");
+    printf("Running the search loop\n\n");
 
-    profiler = std::make_unique<ScopedProfiler>("List traversal");
+    profiler = std::make_unique<ScopedProfiler>("List traversal              ");
 
+    size_t i_iter_checking = 0;
     while (!q1.empty() && !q2.empty())
     {
         auto pair1 = q1.top();
@@ -562,12 +575,13 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
 
         if (score == rhs_subset_sum_1d)
         {
-            printf("Checking %ld + %ld\n", score_pair1, score_pair2);
-            // ScopedProfiler("Solution validation");
-            std::vector<std::pair<size_t, size_t>> same_score_q1;
-            std::vector<std::pair<size_t, size_t>> same_score_q2;
+            ++i_iter_checking;
+            /* Clear vectors but keep their old capacity. */
+            same_score_q1.clear();
+            same_score_q2.clear();
 
-            auto profiler_2 = std::make_unique<ScopedProfiler>("Candidate extraction");
+            auto profiler_inside_loop = std::make_unique<ScopedProfiler>("Candidate extraction        ");
+
             /* For each element a in q1 with score(a) == score_pair1, collect all solutions. */
             while (!q1.empty() && set1_weights[q1.top().first] + set2_weights_sorted_asc[q1.top().second] == score_pair1)
             {
@@ -613,32 +627,29 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
                     q2.emplace(pair2_same_score.first, pos_set4_weights);
                 }
             }
-            profiler_2.reset();
 
-            printf("Checking %ld x %ld = %ld possible solutions\n", same_score_q1.size(), same_score_q2.size(), same_score_q1.size() * same_score_q2.size());
+            profiler_inside_loop = std::make_unique<ScopedProfiler>("Combine scores              ");
+
+            print_info_line(i_iter_checking, profilerTotal->elapsed(), score_pair1, score_pair2, same_score_q1.size(), same_score_q2.size());
 
             bool found = false;
             std::pair<size_t, size_t> solution;
 
             if (run_on_gpu)
             {
-                profiler_2 = std::make_unique<ScopedProfiler>("Combine scores");
-
-                // TODO: keep on gpu .. to decrease setup time.
                 combine_scores_gpu(gpu_data, same_score_q1, true);
                 combine_scores_gpu(gpu_data, same_score_q2, false);
 
-                profiler_2.reset();
+                profiler_inside_loop = std::make_unique<ScopedProfiler>("Evaluate solutions GPU      ");
 
                 auto [done, solution_indices] = evaluate_solutions_gpu_hashing(gpu_data, same_score_q1.size(), same_score_q2.size());
 
                 found = done;
                 solution = solution_indices;
+                profiler_inside_loop.reset();
             }
             else
             {
-                profiler_2 = std::make_unique<ScopedProfiler>("Combine scores");
-
                 /* Precompute the partial scores. */
                 std::vector<size_t> buffered_scores_q1(ms_inst.m() * same_score_q1.size());
                 std::vector<size_t> buffered_scores_q2(ms_inst.m() * same_score_q2.size());
@@ -646,14 +657,15 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
                 combine_scores_cpu(set1_scores, set2_scores_sorted_asc, ms_inst.m(), same_score_q1, buffered_scores_q1);
                 combine_scores_cpu(set3_scores, set4_scores_sorted_desc, ms_inst.m(), same_score_q2, buffered_scores_q2);
 
-                profiler_2.reset();
+                profiler_inside_loop = std::make_unique<ScopedProfiler>("Evaluate solutions CPU      ");
 
                 auto [done, solution_indices] = evaluate_solutions_cpu_hashing(ms_inst, buffered_scores_q1, buffered_scores_q2, same_score_q1.size(), same_score_q2.size());
-                // auto [done, solution_indices] = evaluate_solutions_cpu(ms_inst, feas_q1, feas_q2, buffered_scores_q1, buffered_scores_q2, same_score_q1.size(), same_score_q2.size());
 
                 found = done;
                 solution = solution_indices;
+                profiler_inside_loop.reset();
             }
+
             if (!found)
                 continue;
 
@@ -820,10 +832,7 @@ int main(int argc, char *argv[])
 
         /* Shroeppel-Shamir */
         if (shroeppel_shamir(subset_sum_1d, rhs_subset_sum_1d, instance, program["--gpu"] == true, instance_name))
-        {
-            printf("Actually found something!\n");
-            break;
-        }
+            printf("Found feasible solution!\n");
         else
             printf("Instance was infeasible .. \n");
     }
