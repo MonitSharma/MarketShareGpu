@@ -387,7 +387,7 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_cpu_hashing(const 
     bool done = false;
     std::pair<size_t, size_t> solution_indices = {n_q1, n_q2};
 
-    auto profiler = std::make_unique<ScopedProfiler>("Eval CPU:  Hash table setup");
+    auto profiler = std::make_unique<ScopedProfiler>("Eval CPU: Hash table setup  ");
     for (size_t i_q1 = 0; i_q1 < n_q1; ++i_q1)
     {
         for (size_t j = 0; j < len_vec; ++j)
@@ -399,7 +399,7 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_cpu_hashing(const 
         hashTable[needed_key] = i_q1;
     }
 
-    profiler = std::make_unique<ScopedProfiler>("Eval CPU: Hash table search");
+    profiler = std::make_unique<ScopedProfiler>("Eval CPU: Hash table search ");
 #pragma omp parallel shared(done)
 #pragma omp for
     for (size_t i_q2 = 0; i_q2 < n_q2; ++i_q2)

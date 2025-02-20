@@ -281,13 +281,13 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(GpuDat
     size_t n_search = sort_first ? n_q2 : n_q1;
 
     /* Compute hashes of required vectors. */
-    auto profiler = std::make_unique<ScopedProfiler>("Eval GPU:   compute required");
+    auto profiler = std::make_unique<ScopedProfiler>("Eval GPU: compute required  ");
 
     int block_dim = 128;
     int n_blocks = (n_q1 * gpu_data.m_rows + block_dim - 1) / block_dim;
     compute_required<<<n_blocks, block_dim>>>(gpu_data.rhs, buffer_required, m_rows, n_required);
 
-    profiler = std::make_unique<ScopedProfiler>("Eval GPU:         data setup");
+    profiler = std::make_unique<ScopedProfiler>("Eval GPU: data setup        ");
 
     /* Compute the hashes of required vectors and available vectors. Sort the required hashes and then do a parallel binary search on them. */
     gpu_data.init_keys_buffer(n_required, true);
@@ -296,22 +296,22 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(GpuDat
     /* Setup indices for the sorting of the required array. */
     thrust::sequence(thrust::device, gpu_data.indices_keys_buffer1, gpu_data.indices_keys_buffer1 + n_required);
 
-    profiler = std::make_unique<ScopedProfiler>("Eval GPU:             encode");
+    profiler = std::make_unique<ScopedProfiler>("Eval GPU: encode            ");
 
     // Encode vectors into keys
     encodeVectors<<<(n_q1 + 255) / 256, 256>>>(buffer_required, n_required, m_rows, gpu_data.keys_buffer1);
     encodeVectors<<<(n_q2 + 255) / 256, 256>>>(buffer_search, n_search, m_rows, gpu_data.keys_buffer2);
 
-    profiler = std::make_unique<ScopedProfiler>("Eval GPU:               sort");
+    profiler = std::make_unique<ScopedProfiler>("Eval GPU: sort              ");
 
     // Sort the keys from l1
     thrust::sort_by_key(thrust::device, gpu_data.keys_buffer1, gpu_data.keys_buffer1 + n_required, gpu_data.indices_keys_buffer1);
 
-    profiler = std::make_unique<ScopedProfiler>("Eval GPU:             serach");
+    profiler = std::make_unique<ScopedProfiler>("Eval GPU: search            ");
 
     thrust::binary_search(thrust::device, gpu_data.keys_buffer1, gpu_data.keys_buffer1 + n_required, gpu_data.keys_buffer2, gpu_data.keys_buffer2 + n_search, gpu_data.result);
 
-    profiler = std::make_unique<ScopedProfiler>("Eval GPU:      check results");
+    profiler = std::make_unique<ScopedProfiler>("Eval GPU: check results     ");
 
     thrust::device_ptr<size_t> result_ptr(gpu_data.result);
     auto iter = thrust::find(result_ptr, result_ptr + n_search, 1);
