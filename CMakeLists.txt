@@ -26,7 +26,7 @@ endif (USE_CUDA)
 if (CUDA_ENABLED)
     add_executable (markshare_main src/main.cpp src/cuda_kernels.cu)
 
-    set_target_properties(markshare_main PROPERTIES CUDA_ARCHITECTURES "75;80;86;90") # Replace these with the desired compute capabilities
+    set_target_properties(markshare_main PROPERTIES CUDA_ARCHITECTURES "70;75;80;86;90") # Replace these with the desired compute capabilities
     set_target_properties(markshare_main PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
     target_compile_options(markshare_main PRIVATE
