@@ -542,9 +542,13 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
     std::vector<std::pair<size_t, size_t>> same_score_q1;
     std::vector<std::pair<size_t, size_t>> same_score_q2;
 
-    std::priority_queue<std::pair<size_t, size_t>, std::vector<std::pair<size_t, size_t>>, decltype(min_cmp)> q1(min_cmp);
-    std::priority_queue<std::pair<size_t, size_t>, std::vector<std::pair<size_t, size_t>>, decltype(max_cmp)> q2(max_cmp);
+    std::vector<std::pair<size_t, size_t>> heap1;
+    heap1.reserve(set1_weights.size());
+    std::vector<std::pair<size_t, size_t>> heap2;
+    heap2.reserve(set3_weights.size());
 
+    // std::priority_queue<std::pair<size_t, size_t>, std::vector<std::pair<size_t, size_t>>, decltype(min_cmp)> q1(min_cmp);
+    // std::priority_queue<std::pair<size_t, size_t>, std::vector<std::pair<size_t, size_t>>, decltype(max_cmp)> q2(max_cmp);
     // TODO: the initial insert can likely be improved by simple sorting.
 
     for (size_t i = 0; i < set1_weights.size(); ++i)
@@ -552,21 +556,24 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
         /* If already the sum of these 2 elements is greater than the right hand side we can skip them. Subsequent combinations (e.g. with higher pos_subset2)
          * will only be even larger. */
         if (set1_weights[i] + set2_weights_sorted_asc[0] <= rhs_subset_sum_1d)
-            q1.emplace(i, 0);
+            heap1.emplace_back(i, 0);
     }
 
     for (size_t i = 0; i < set3_weights.size(); ++i)
-        q2.emplace(i, 0);
+        heap2.emplace_back(i, 0);
+
+    std::make_heap(heap1.begin(), heap1.end(), min_cmp);
+    std::make_heap(heap2.begin(), heap2.end(), max_cmp);
 
     printf("Running the search loop\n\n");
 
     profiler = std::make_unique<ScopedProfiler>("List traversal              ");
 
     size_t i_iter_checking = 0;
-    while (!q1.empty() && !q2.empty())
+    while (!heap1.empty() && !heap2.empty())
     {
-        auto pair1 = q1.top();
-        auto pair2 = q2.top();
+        const auto pair1 = heap1.front();
+        const auto pair2 = heap2.front();
 
         /* score_pair1 is the currently lowest score in {set1_weights, set2_weights} we are still considering */
         const size_t score_pair1 = set1_weights[pair1.first] + set2_weights_sorted_asc[pair1.second];
@@ -589,9 +596,12 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
             {
 #pragma omp section
                 {
-                    while (!q1.empty() && set1_weights[q1.top().first] + set2_weights_sorted_asc[q1.top().second] == score_pair1)
+                    while (!heap1.empty() && set1_weights[heap1.front().first] + set2_weights_sorted_asc[heap1.front().second] == score_pair1)
                     {
-                        const auto pair1_same_score = q1.top();
+                        const auto pair1_same_score = heap1.front();
+                        std::pop_heap(heap1.begin(), heap1.end(), min_cmp);
+                        heap1.pop_back();
+
                         size_t pos_set2_weights = pair1_same_score.second;
 
                         /* Iterate the second elements. */
@@ -603,20 +613,23 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
                             ++pos_set2_weights;
                         }
 
-                        q1.pop();
                         if (pos_set2_weights < set2_weights.size())
                         {
                             assert(score_pair1 < set1_weights[pair1_same_score.first] + set2_weights_sorted_asc[pos_set2_weights]);
-                            q1.emplace(pair1_same_score.first, pos_set2_weights);
+                            heap1.emplace_back(pair1_same_score.first, pos_set2_weights);
+                            std::push_heap(heap1.begin(), heap1.end(), min_cmp);
                         }
                     }
                 }
 #pragma omp section
                 {
                     /* For each element a in q2 with score(a) == score_pair2, collect all solutions. */
-                    while (!q2.empty() && set3_weights[q2.top().first] + set4_weights_sorted_desc[q2.top().second] == score_pair2)
+                    while (!heap2.empty() && set3_weights[heap2.front().first] + set4_weights_sorted_desc[heap2.front().second] == score_pair2)
                     {
-                        const auto pair2_same_score = q2.top();
+                        const auto pair2_same_score = heap2.front();
+                        std::pop_heap(heap2.begin(), heap2.end(), max_cmp);
+                        heap2.pop_back();
+
                         size_t pos_set4_weights = pair2_same_score.second;
 
                         /* Iterate the second elements. */
@@ -628,11 +641,11 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
                             ++pos_set4_weights;
                         }
 
-                        q2.pop();
                         if (pos_set4_weights < set4_weights.size())
                         {
                             assert(score_pair2 > set3_weights[pair2_same_score.first] + set4_weights_sorted_desc[pos_set4_weights]);
-                            q2.emplace(pair2_same_score.first, pos_set4_weights);
+                            heap2.emplace_back(pair2_same_score.first, pos_set4_weights);
+                            std::push_heap(heap2.begin(), heap2.end(), max_cmp);
                         }
                     }
                 }
@@ -709,7 +722,9 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
         {
             size_t pos_set2_weights = pair1.second;
 
-            q1.pop();
+            std::pop_heap(heap1.begin(), heap1.end(), min_cmp);
+            heap1.pop_back();
+
             ++pos_set2_weights;
 
             while (pos_set2_weights + 1 < set2_weights.size() && (set2_weights_sorted_asc[pos_set2_weights] == set2_weights_sorted_asc[pair1.second] || (set1_weights[pair1.first] + set2_weights_sorted_asc[pos_set2_weights] + score_pair2) < rhs_subset_sum_1d))
@@ -717,13 +732,18 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
 
             /* Again, the element in q1 can only increase (or stay equal). So ignore elements that are already too big. */
             if (pos_set2_weights < set2_weights.size() && set1_weights[pair1.first] + set2_weights_sorted_asc[pos_set2_weights] <= rhs_subset_sum_1d)
-                q1.emplace(pair1.first, pos_set2_weights);
+            {
+                heap1.emplace_back(pair1.first, pos_set2_weights);
+                std::push_heap(heap1.begin(), heap1.end(), min_cmp);
+            }
         }
         else if (score > rhs_subset_sum_1d)
         {
             size_t pos_set4_weights = pair2.second;
 
-            q2.pop();
+            std::pop_heap(heap2.begin(), heap2.end(), max_cmp);
+            heap2.pop_back();
+
             ++pos_set4_weights;
 
             /* Skip all entries in set4_weights until we find a smaller one. */
@@ -731,7 +751,10 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
                 ++pos_set4_weights;
 
             if (pos_set4_weights < set4_weights.size() && set3_weights[pair2.first] + set4_weights_sorted_desc[pos_set4_weights] <= rhs_subset_sum_1d)
-                q2.emplace(pair2.first, pos_set4_weights);
+            {
+                heap2.emplace_back(pair2.first, pos_set4_weights);
+                std::push_heap(heap2.begin(), heap2.end(), max_cmp);
+            }
         }
     }
 
