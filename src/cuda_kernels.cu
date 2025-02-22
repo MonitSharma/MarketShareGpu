@@ -13,23 +13,26 @@
 #include <iostream>
 
 template <typename T>
-T *copy_to_device(const std::vector<T> &host_vec)
+T *copy_to_device(const std::vector<T> &host_vec, int64_t &n_bytes_alloc_total)
 {
     T *device_ptr;
-    cudaMalloc(&device_ptr, host_vec.size() * sizeof(T));
-    cudaMemcpy(device_ptr, host_vec.data(), host_vec.size() * sizeof(T), cudaMemcpyHostToDevice);
+    const auto n_bytes_alloc = host_vec.size() * sizeof(T);
+    cudaMalloc(&device_ptr, n_bytes_alloc);
+    cudaMemcpy(device_ptr, host_vec.data(), n_bytes_alloc, cudaMemcpyHostToDevice);
+
+    n_bytes_alloc_total += n_bytes_alloc;
     return device_ptr;
 }
 
 GpuData::GpuData(const MarkShareFeas &ms_inst, const std::vector<size_t> &set1_scores, const std::vector<size_t> &set2_scores, const std::vector<size_t> &set3_scores, const std::vector<size_t> &set4_scores) : m_rows(ms_inst.m()), n_cols(ms_inst.n())
 {
-    this->matrix = copy_to_device(ms_inst.A());
-    this->rhs = copy_to_device(ms_inst.b());
+    this->matrix = copy_to_device(ms_inst.A(), n_bytes_alloc);
+    this->rhs = copy_to_device(ms_inst.b(), n_bytes_alloc);
 
-    this->set1_scores = copy_to_device(set1_scores);
-    this->set2_scores = copy_to_device(set2_scores);
-    this->set3_scores = copy_to_device(set3_scores);
-    this->set4_scores = copy_to_device(set4_scores);
+    this->set1_scores = copy_to_device(set1_scores, n_bytes_alloc);
+    this->set2_scores = copy_to_device(set2_scores, n_bytes_alloc);
+    this->set3_scores = copy_to_device(set3_scores, n_bytes_alloc);
+    this->set4_scores = copy_to_device(set4_scores, n_bytes_alloc);
 }
 
 GpuData::~GpuData()
@@ -42,301 +45,177 @@ GpuData::~GpuData()
     cudaFree(matrix);
     cudaFree(rhs);
 
-    cudaFree(scores_buffer1);
-    cudaFree(scores_buffer2);
-    cudaFree(pairs_buffer1);
-    cudaFree(pairs_buffer2);
+    cudaFree(required_buffer);
+    cudaFree(required_sort_sequence_buffer);
+
+    cudaFree(search_buffer);
+    cudaFree(results_search_buffer);
 }
 
-void GpuData::init_scores_buffer(size_t n_pairs, bool first_buffer)
+void GpuData::copy_pairs_required(const std::vector<std::pair<size_t, size_t>> &pairs)
 {
-    size_t len_required = n_pairs * m_rows;
+    size_t len_needed = pairs.size();
 
-    if ((first_buffer && len_required > len_scores_buffer1) || (!first_buffer && len_required > len_scores_buffer2))
+    if (len_needed > len_required_buffer)
     {
-        size_t new_len = static_cast<size_t>(len_required * 1.4 + 1);
-        assert(new_len > len_required);
+        size_t new_len = static_cast<size_t>(len_needed * 1.4 + 1);
+        assert(new_len > len_needed);
 
-        if (first_buffer)
-        {
-            if (len_pairs_buffer1 > 0)
-                cudaFree(scores_buffer1);
-            cudaMalloc(&scores_buffer1, new_len * sizeof(size_t));
-            len_scores_buffer1 = new_len;
-        }
-        else
-        {
-            if (len_pairs_buffer2 > 0)
-                cudaFree(scores_buffer2);
-            cudaMalloc(&scores_buffer2, new_len * sizeof(size_t));
-            len_scores_buffer2 = new_len;
-        }
+        cudaFree(required_buffer);
+        cudaFree(required_sort_sequence_buffer);
+
+        n_bytes_alloc += (sizeof(size_t) + sizeof(__int128_t)) * (new_len - len_required_buffer);
+        cudaMalloc(&required_buffer, new_len * sizeof(__int128_t));
+        cudaMalloc(&required_sort_sequence_buffer, new_len * sizeof(size_t));
+
+        len_required_buffer = new_len;
     }
 
-    assert(!((first_buffer && len_required > len_scores_buffer1) || (!first_buffer && len_required > len_scores_buffer2)));
+    size_t *pairs_required = (size_t *)(required_buffer);
+    cudaMemcpy(pairs_required, pairs.data(), pairs.size() * 2 * sizeof(size_t), cudaMemcpyHostToDevice);
+    n_required = len_needed;
 }
 
-void GpuData::init_keys_buffer(size_t n_keys, bool first_buffer)
+void GpuData::copy_pairs_search(const std::vector<std::pair<size_t, size_t>> &pairs)
 {
-    size_t len_required = n_keys;
+    size_t len_needed = pairs.size();
 
-    if ((first_buffer && len_required > len_keys_buffer1) || (!first_buffer && len_required > len_keys_buffer2))
+    if (len_needed > len_search_buffer)
     {
-        size_t new_len = static_cast<size_t>(len_required * 1.4 + 1);
-        assert(new_len > len_required);
+        size_t new_len = static_cast<size_t>(len_needed * 1.4 + 1);
+        assert(new_len > len_needed);
 
-        if (first_buffer)
-        {
-            /* Also allocate the indices array here! */
-            if (len_keys_buffer1 > 0)
-            {
-                cudaFree(keys_buffer1);
-                cudaFree(indices_keys_buffer1);
-            }
-            cudaMalloc(&keys_buffer1, new_len * sizeof(__int128_t));
-            cudaMalloc(&indices_keys_buffer1, new_len * sizeof(size_t));
-            len_keys_buffer1 = new_len;
-        }
-        else
-        {
-            if (len_keys_buffer2 > 0)
-            {
-                cudaFree(keys_buffer2);
-                cudaFree(result);
-            }
-            cudaMalloc(&keys_buffer2, new_len * sizeof(__int128_t));
-            cudaMalloc(&result, new_len * sizeof(size_t));
-            len_keys_buffer2 = new_len;
-        }
+        cudaFree(search_buffer);
+        cudaFree(results_search_buffer);
+
+        n_bytes_alloc += (sizeof(size_t) + sizeof(__int128_t)) * (new_len - len_search_buffer);
+        cudaMalloc(&search_buffer, new_len * sizeof(__int128_t));
+        cudaMalloc(&results_search_buffer, new_len * sizeof(size_t));
+
+        len_search_buffer = new_len;
     }
 
-    assert(!((first_buffer && len_required > len_keys_buffer1) || (!first_buffer && len_required > len_keys_buffer2)));
+    size_t *pairs_serach = (size_t *)(search_buffer);
+    cudaMemcpy(pairs_serach, pairs.data(), pairs.size() * 2 * sizeof(size_t), cudaMemcpyHostToDevice);
+    n_search = len_needed;
 }
 
-void GpuData::copy_pairs(const std::vector<std::pair<size_t, size_t>> &pairs, bool first_buffer)
+template <bool ENCODE_REQUIRED>
+__global__ void combine_and_encode_kernel(const size_t *__restrict__ scores1, const size_t *__restrict__ scores2, const size_t *__restrict__ rhs, size_t *__restrict__ pairs, size_t n_pairs, size_t m_rows)
 {
-    size_t len_required = pairs.size() * 2;
+    const int i_pair = blockIdx.x * blockDim.x + threadIdx.x;
+    constexpr size_t BASE = 10000; /* Maximum value per vector element */
 
-    if ((first_buffer && len_required > len_pairs_buffer1) || (!first_buffer && len_required > len_pairs_buffer2))
-    {
-        size_t new_len = static_cast<size_t>(len_required * 1.4 + 1);
-        assert(new_len > len_required);
-
-        if (first_buffer)
-        {
-            if (len_pairs_buffer1 > 0)
-                cudaFree(pairs_buffer1);
-
-            cudaMalloc(&pairs_buffer1, new_len * sizeof(size_t));
-            len_pairs_buffer1 = new_len;
-        }
-        else
-        {
-            if (len_pairs_buffer2 > 0)
-                cudaFree(pairs_buffer2);
-
-            cudaMalloc(&pairs_buffer2, new_len * sizeof(size_t));
-            len_pairs_buffer2 = new_len;
-        }
-    }
-
-    assert(!((first_buffer && len_required > len_pairs_buffer1) || (!first_buffer && len_required > len_pairs_buffer2)));
-    cudaMemcpy(first_buffer ? pairs_buffer1 : pairs_buffer2, pairs.data(), pairs.size() * 2 * sizeof(size_t), cudaMemcpyHostToDevice);
-}
-
-__global__ void check_sums(const size_t *val1, const size_t *val2, const size_t *rhs, size_t *solution, size_t n_val1, size_t n_val2, size_t m_rhs)
-{
-    int i1 = blockIdx.x * blockDim.x + threadIdx.x; // Thread for index i1
-    int i2 = blockIdx.y * blockDim.y + threadIdx.y; // Thread for index i2
-
-    if (i1 < n_val1 && i2 < n_val2)
-    {
-        bool feas = true;
-
-        for (int j = 1; j < m_rhs; ++j)
-        {
-            const size_t sum = val1[i1 * m_rhs + j] + val2[i2 * m_rhs + j];
-            if (sum != rhs[j])
-            {
-                feas = false;
-                break;
-            }
-        }
-
-        if (feas)
-        {
-            *solution = i1 * n_val2 + i2;
-            return;
-        }
-    }
-}
-
-__global__ void binarySearchKeys(const __int128_t *sorted_keys, size_t num_sorted_keys,
-                                 const __int128_t *query_keys, size_t *results, size_t num_query_keys)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= num_query_keys)
-        return;
-
-    __int128_t query_key = query_keys[idx];
-    int64_t left = 0, right = num_sorted_keys - 1;
-
-    // Binary search
-    while (left <= right)
-    {
-        int64_t mid = left + (right - left) / 2;
-        if (sorted_keys[mid] == query_key)
-        {
-            results[idx] = mid;
-            return;
-        }
-        else if (sorted_keys[mid] < query_key)
-        {
-            left = mid + 1;
-        }
-        else
-        {
-            right = mid - 1;
-        }
-    }
-}
-
-__global__ void encodeVectors(const size_t *vectors, size_t num_vectors, size_t vector_size, __int128_t *encoded_keys)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= num_vectors)
+    if (i_pair >= n_pairs)
         return;
 
     __int128_t key = 0;
-    size_t base = 10000; // Maximum value per vector element
-    for (size_t i = 0; i < vector_size; i++)
+    const size_t idx1 = pairs[2 * i_pair];
+    const size_t idx2 = pairs[2 * i_pair + 1];
+
+    for (size_t i_row = 0; i_row < m_rows; ++i_row)
     {
-        key = key * base + vectors[idx * vector_size + i];
+
+        /* Compute the pair's score of this row and add it (encoded) to key. */
+        size_t row_score = scores1[idx1 * m_rows + i_row] + scores2[idx2 * m_rows + i_row];
+
+        if (ENCODE_REQUIRED)
+            row_score = rhs[i_row] - row_score;
+
+        /* FMA. */
+        key = key * BASE + row_score;
     }
-    encoded_keys[idx] = key;
+
+    /* Offload key to the original pair position. */
+    *(__int128_t *)(pairs + 2 * i_pair) = key;
 }
 
-__global__ void compute_required(const size_t *__restrict__ rhs, size_t *__restrict__ scores, size_t m, size_t n_scores)
+void combine_and_encode_gpu(GpuData &gpu_data, const std::vector<std::pair<size_t, size_t>> &pairs1, const std::vector<std::pair<size_t, size_t>> &pairs2)
 {
-    // Get the index of the current thread in the grid
-    size_t i_idx = blockIdx.x * blockDim.x + threadIdx.x;
-    size_t i_score = i_idx / m;
-    size_t i_m = i_idx % m;
+    const size_t m_rows = gpu_data.m_rows;
+    const size_t n_p1 = pairs1.size();
+    const size_t n_p2 = pairs2.size();
 
-    // Check bounds
-    if (i_score < n_scores && i_m < m)
+    /* The shorter array will be encoded as required and will be sorted. */
+    const bool encode_first_as_required = (n_p1 < n_p2);
+
+    auto profiler = std::make_unique<ScopedProfiler>("Eval GPU: combine + encode  ");
+
+    gpu_data.copy_pairs_required(encode_first_as_required ? pairs1 : pairs2);
+    gpu_data.copy_pairs_search(encode_first_as_required ? pairs2 : pairs1);
+
+    /* Each pair is treated by one single thread. */
+    constexpr int block_dim = 128;
+    int n_blocks_1 = (n_p1 + block_dim - 1) / block_dim;
+    int n_blocks_2 = (n_p2 + block_dim - 1) / block_dim;
+
+    if (encode_first_as_required)
     {
-        // Calculate the index
-        size_t idx = i_score * m + i_m;
-        // Perform the computation
-        scores[idx] = rhs[i_m] - scores[idx];
-    }
-}
-
-__global__ void combine_scores_kernel(const size_t *__restrict__ scores1, const size_t *__restrict__ scores2, const size_t *__restrict__ pairs, size_t *__restrict__ result, size_t m, size_t n_pairs)
-{
-    // Get the index of the current thread in the grid
-    size_t i_idx = blockIdx.x * blockDim.x + threadIdx.x;
-    size_t i_pair = i_idx / m;
-    size_t i_m = i_idx % m;
-
-    // Check bounds
-    if (i_pair < n_pairs && i_m < m)
-    {
-        size_t idx1 = pairs[2 * i_pair];
-        size_t idx2 = pairs[2 * i_pair + 1];
-
-        // Perform the computation
-        result[i_pair * m + i_m] = scores1[idx1 * m + i_m] + scores2[idx2 * m + i_m];
-    }
-}
-
-void combine_scores_gpu(GpuData &gpu_data, const std::vector<std::pair<size_t, size_t>> &pairs, bool first_buffer)
-{
-    gpu_data.copy_pairs(pairs, first_buffer);
-    gpu_data.init_scores_buffer(pairs.size(), first_buffer);
-
-    int block_dim = 128;
-    int n_blocks = (pairs.size() * gpu_data.m_rows + block_dim - 1) / block_dim;
-    if (first_buffer)
-    {
-        combine_scores_kernel<<<n_blocks, block_dim>>>(gpu_data.set1_scores, gpu_data.set2_scores, gpu_data.pairs_buffer1, gpu_data.scores_buffer1, gpu_data.m_rows, pairs.size());
+        combine_and_encode_kernel<true><<<n_blocks_1, block_dim>>>(gpu_data.set1_scores, gpu_data.set2_scores, gpu_data.rhs, (size_t *)gpu_data.required_buffer, n_p1, m_rows);
+        combine_and_encode_kernel<false><<<n_blocks_2, block_dim>>>(gpu_data.set3_scores, gpu_data.set4_scores, gpu_data.rhs, (size_t *)gpu_data.search_buffer, n_p2, m_rows);
     }
     else
     {
-        combine_scores_kernel<<<n_blocks, block_dim>>>(gpu_data.set3_scores, gpu_data.set4_scores, gpu_data.pairs_buffer2, gpu_data.scores_buffer2, gpu_data.m_rows, pairs.size());
+        combine_and_encode_kernel<false><<<n_blocks_1, block_dim>>>(gpu_data.set1_scores, gpu_data.set2_scores, gpu_data.rhs, (size_t *)gpu_data.search_buffer, n_p1, m_rows);
+        combine_and_encode_kernel<true><<<n_blocks_2, block_dim>>>(gpu_data.set3_scores, gpu_data.set4_scores, gpu_data.rhs, (size_t *)gpu_data.required_buffer, n_p2, m_rows);
     }
+
+    profiler.reset();
 }
 
-std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(GpuData &gpu_data, size_t n_q1, size_t n_q2)
+std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(GpuData &gpu_data, size_t n_p1, size_t n_p2)
 {
-    size_t m_rows = gpu_data.m_rows;
-    /* We encode and sort the shorter of the two arrays. */
-    bool sort_first = n_q1 < n_q2;
-    assert(m_rows > 0);
+    /* The shorter array will be encoded as required and will be sorted. */
+    const bool encode_first_as_required = (n_p1 < n_p2);
+    const size_t n_required = gpu_data.n_required;
+    const size_t n_search = gpu_data.n_search;
 
-    size_t *buffer_required = sort_first ? gpu_data.scores_buffer1 : gpu_data.scores_buffer2;
-    size_t *buffer_search = sort_first ? gpu_data.scores_buffer2 : gpu_data.scores_buffer1;
-    size_t n_required = sort_first ? n_q1 : n_q2;
-    size_t n_search = sort_first ? n_q2 : n_q1;
+    __int128_t *required = gpu_data.required_buffer;
+    size_t *sequence = gpu_data.required_sort_sequence_buffer;
+
+    __int128_t *search = gpu_data.search_buffer;
+    size_t *result = gpu_data.results_search_buffer;
 
     /* Compute hashes of required vectors. */
-    auto profiler = std::make_unique<ScopedProfiler>("Eval GPU: compute required  ");
-
-    int block_dim = 128;
-    int n_blocks = (n_required * gpu_data.m_rows + block_dim - 1) / block_dim;
-    compute_required<<<n_blocks, block_dim>>>(gpu_data.rhs, buffer_required, m_rows, n_required);
-
-    profiler = std::make_unique<ScopedProfiler>("Eval GPU: data setup        ");
-
-    /* Compute the hashes of required vectors and available vectors. Sort the required hashes and then do a parallel binary search on them. */
-    gpu_data.init_keys_buffer(n_required, true);
-    gpu_data.init_keys_buffer(n_search, false);
+    auto profiler = std::make_unique<ScopedProfiler>("Eval GPU: sort required     ");
 
     /* Setup indices for the sorting of the required array. */
-    thrust::sequence(thrust::device, gpu_data.indices_keys_buffer1, gpu_data.indices_keys_buffer1 + n_required);
+    thrust::sequence(thrust::device, sequence, sequence + n_required);
 
-    profiler = std::make_unique<ScopedProfiler>("Eval GPU: encode            ");
+    /* Sort the array of required keys. */
+    thrust::sort_by_key(thrust::device, required, required + n_required, sequence);
 
-    // Encode vectors into keys
-    encodeVectors<<<(n_required + 255) / 256, 256>>>(buffer_required, n_required, m_rows, gpu_data.keys_buffer1);
-    encodeVectors<<<(n_search + 255) / 256, 256>>>(buffer_search, n_search, m_rows, gpu_data.keys_buffer2);
+    profiler = std::make_unique<ScopedProfiler>("Eval GPU: binary search     ");
 
-    profiler = std::make_unique<ScopedProfiler>("Eval GPU: sort              ");
-
-    // Sort the keys from l1
-    thrust::sort_by_key(thrust::device, gpu_data.keys_buffer1, gpu_data.keys_buffer1 + n_required, gpu_data.indices_keys_buffer1);
-
-    profiler = std::make_unique<ScopedProfiler>("Eval GPU: search            ");
-
-    thrust::binary_search(thrust::device, gpu_data.keys_buffer1, gpu_data.keys_buffer1 + n_required, gpu_data.keys_buffer2, gpu_data.keys_buffer2 + n_search, gpu_data.result);
+    thrust::binary_search(thrust::device, required, required + n_required, search, search + n_search, result);
 
     profiler = std::make_unique<ScopedProfiler>("Eval GPU: check results     ");
 
-    thrust::device_ptr<size_t> result_ptr(gpu_data.result);
+    thrust::device_ptr<size_t> result_ptr(result);
     auto iter = thrust::find(result_ptr, result_ptr + n_search, 1);
 
     if (iter != result_ptr + n_search)
     {
+        /* Get the position of the found element and copy back its (unsorted) search value. */
         size_t i_search = thrust::distance(result_ptr, iter);
 
         __int128_t val = 0;
-        cudaMemcpy(&val, gpu_data.keys_buffer2 + i_search, sizeof(__int128_t), cudaMemcpyDeviceToHost);
+        cudaMemcpy(&val, search + i_search, sizeof(__int128_t), cudaMemcpyDeviceToHost);
 
-        /* Retrieve i_q1. */
-        auto iter = thrust::find(thrust::device, gpu_data.keys_buffer1, gpu_data.keys_buffer1 + n_required, val);
+        /* Given the search value, we can find the required value's position and, via the sequence array, get the original index. */
+        auto iter = thrust::find(thrust::device, required, required + n_required, val);
+        size_t pos_i_required = thrust::distance(required, iter);
+        size_t i_required = 0;
+        cudaMemcpy(&i_required, sequence + pos_i_required, sizeof(size_t), cudaMemcpyDeviceToHost);
+
         profiler.reset();
 
-        size_t pos_i_required = thrust::distance(gpu_data.keys_buffer1, iter);
-        size_t i_required = 0;
-        cudaMemcpy(&i_required, gpu_data.indices_keys_buffer1 + pos_i_required, sizeof(size_t), cudaMemcpyDeviceToHost);
-
-        if (sort_first)
+        if (encode_first_as_required)
             return {true, {i_required, i_search}};
         else
             return {true, {i_search, i_required}};
     }
     profiler.reset();
 
-    return {false, {n_q1, n_q2}};
+    return {false, {n_p1, n_p2}};
 }

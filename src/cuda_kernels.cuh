@@ -12,6 +12,9 @@ public:
 
     ~GpuData();
 
+    int64_t n_bytes_alloc{};
+
+    /* Required data for any computations on GPU. Is considered constant throughout the algorithm. */
     size_t *set1_scores{};
     size_t *set2_scores{};
     size_t *set3_scores{};
@@ -23,31 +26,26 @@ public:
     size_t m_rows{};
     size_t n_cols{};
 
-    size_t *scores_buffer1{};
-    size_t len_scores_buffer1{};
+    /* GPU buffers. Get resized depending on the problem. */
+    __int128_t *required_buffer{};
+    size_t *required_sort_sequence_buffer{};
+    size_t len_required_buffer{}; /* Size of above buffers. */
+    size_t n_required;
 
-    size_t *scores_buffer2{};
-    size_t len_scores_buffer2{};
+    __int128_t *search_buffer{};
+    size_t *results_search_buffer{};
+    size_t len_search_buffer{}; /* Size of above buffers. */
+    size_t n_search;
 
-    size_t *pairs_buffer1{};
-    size_t len_pairs_buffer1{};
+    double get_gb_allocated() const
+    {
+        return (double)n_bytes_alloc / (1000000000);
+    };
 
-    size_t *pairs_buffer2{};
-    size_t len_pairs_buffer2{};
-
-    __int128_t *keys_buffer1{};
-    size_t *indices_keys_buffer1{};
-    size_t len_keys_buffer1{};
-
-    __int128_t *keys_buffer2{};
-    size_t *result{};
-    size_t len_keys_buffer2{};
-
-    void init_keys_buffer(size_t n_keys, bool first_buffer);
-    void init_scores_buffer(size_t n_pairs, bool first_buffer);
-    void copy_pairs(const std::vector<std::pair<size_t, size_t>> &pairs, bool first_buffer);
+    void copy_pairs_search(const std::vector<std::pair<size_t, size_t>> &pairs);
+    void copy_pairs_required(const std::vector<std::pair<size_t, size_t>> &pairs);
 };
 
-std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(GpuData &gpu_data, size_t n_q1, size_t n_q2);
+std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(GpuData &gpu_data, size_t n_p1, size_t n_p2);
 
-void combine_scores_gpu(GpuData &gpu_data, const std::vector<std::pair<size_t, size_t>> &pairs, bool first_buffer);
+void combine_and_encode_gpu(GpuData &gpu_data, const std::vector<std::pair<size_t, size_t>> &pairs1, const std::vector<std::pair<size_t, size_t>> &pairs2);

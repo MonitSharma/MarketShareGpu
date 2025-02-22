@@ -456,10 +456,10 @@ void combine_scores_cpu(const std::vector<size_t> &set1_scores, const std::vecto
     }
 }
 
-void print_info_line(size_t i_iter, double time, size_t score1, size_t score2, size_t n_q1, size_t n_q2)
+void print_info_line(const GpuData& gpu_data, size_t i_iter, double time, size_t score1, size_t score2, size_t n_q1, size_t n_q2)
 {
     bool print = false;
-    if (i_iter < 10)
+    if (i_iter < 1000000)
         print = true;
     else if (i_iter < 100 && i_iter % 10 == 0)
         print = true;
@@ -468,7 +468,8 @@ void print_info_line(size_t i_iter, double time, size_t score1, size_t score2, s
 
     if (print)
     {
-        printf("%5ld %8.2fs : %6ld + %6ld; %ld x %ld = %ld possible solutions\n", i_iter, time, score1, score2, n_q1, n_q2, n_q1 * n_q2);
+        const double n_gb = gpu_data.get_gb_allocated();
+        printf("%5ld %8.2fs [%.6f GB]: %6ld + %6ld; %ld x %ld = %ld possible solutions\n", i_iter, time, n_gb, score1, score2, n_q1, n_q2, n_q1 * n_q2);
     }
 }
 
@@ -652,15 +653,14 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
             }
             profiler_inside_loop = std::make_unique<ScopedProfiler>("Combine scores              ");
 
-            print_info_line(i_iter_checking, profilerTotal->elapsed(), score_pair1, score_pair2, same_score_q1.size(), same_score_q2.size());
+            print_info_line(gpu_data, i_iter_checking, profilerTotal->elapsed(), score_pair1, score_pair2, same_score_q1.size(), same_score_q2.size());
 
             bool found = false;
             std::pair<size_t, size_t> solution;
 
             if (run_on_gpu)
             {
-                combine_scores_gpu(gpu_data, same_score_q1, true);
-                combine_scores_gpu(gpu_data, same_score_q2, false);
+                combine_and_encode_gpu(gpu_data, same_score_q1, same_score_q2);
 
                 profiler_inside_loop = std::make_unique<ScopedProfiler>("Evaluate solutions GPU      ");
 
