@@ -664,10 +664,17 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
 
                 profiler_inside_loop = std::make_unique<ScopedProfiler>("Evaluate solutions GPU      ");
 
-                auto [done, solution_indices] = evaluate_solutions_gpu_hashing(gpu_data, same_score_q1.size(), same_score_q2.size());
+                auto [done, hash] = find_equal_hash(gpu_data);
 
                 found = done;
-                solution = solution_indices;
+
+                if (found)
+                {
+                    /* Retrieve the actual solution. We have to copy encode our arrays once more and look for the hash afterwards. */
+                    combine_and_encode_gpu(gpu_data, same_score_q1, same_score_q2);
+
+                    solution = find_hash_positions_gpu(gpu_data, hash, same_score_q1.size(), same_score_q2.size());
+                }
                 profiler_inside_loop.reset();
             }
             else

@@ -28,7 +28,6 @@ public:
 
     /* GPU buffers. Get resized depending on the problem. */
     __int128_t *required_buffer{};
-    size_t *required_sort_sequence_buffer{};
     size_t len_required_buffer{}; /* Size of above buffers. */
     size_t n_required;
 
@@ -46,6 +45,7 @@ public:
     void copy_pairs_required(const std::vector<std::pair<size_t, size_t>> &pairs);
 };
 
-std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(GpuData &gpu_data, size_t n_p1, size_t n_p2);
+std::pair<bool, __int128_t> find_equal_hash(GpuData &gpu_data);
+std::pair<size_t, size_t> find_hash_positions_gpu(GpuData &gpu_data,__int128_t hash, size_t n_p1, size_t n_p2);
 
 void combine_and_encode_gpu(GpuData &gpu_data, const std::vector<std::pair<size_t, size_t>> &pairs1, const std::vector<std::pair<size_t, size_t>> &pairs2);

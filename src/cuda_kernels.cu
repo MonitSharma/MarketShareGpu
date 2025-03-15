@@ -46,7 +46,6 @@ GpuData::~GpuData()
     cudaFree(rhs);
 
     cudaFree(required_buffer);
-    cudaFree(required_sort_sequence_buffer);
 
     cudaFree(search_buffer);
     cudaFree(results_search_buffer);
@@ -62,11 +61,9 @@ void GpuData::copy_pairs_required(const std::vector<std::pair<size_t, size_t>> &
         assert(new_len > len_needed);
 
         cudaFree(required_buffer);
-        cudaFree(required_sort_sequence_buffer);
 
-        n_bytes_alloc += (sizeof(size_t) + sizeof(__int128_t)) * (new_len - len_required_buffer);
+        n_bytes_alloc += sizeof(__int128_t) * (new_len - len_required_buffer);
         cudaMalloc(&required_buffer, new_len * sizeof(__int128_t));
-        cudaMalloc(&required_sort_sequence_buffer, new_len * sizeof(size_t));
 
         len_required_buffer = new_len;
     }
@@ -163,27 +160,21 @@ void combine_and_encode_gpu(GpuData &gpu_data, const std::vector<std::pair<size_
     profiler.reset();
 }
 
-std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(GpuData &gpu_data, size_t n_p1, size_t n_p2)
+std::pair<bool, __int128_t> find_equal_hash(GpuData &gpu_data)
 {
     /* The shorter array will be encoded as required and will be sorted. */
-    const bool encode_first_as_required = (n_p1 < n_p2);
     const size_t n_required = gpu_data.n_required;
     const size_t n_search = gpu_data.n_search;
 
     __int128_t *required = gpu_data.required_buffer;
-    size_t *sequence = gpu_data.required_sort_sequence_buffer;
-
     __int128_t *search = gpu_data.search_buffer;
     size_t *result = gpu_data.results_search_buffer;
 
     /* Compute hashes of required vectors. */
     auto profiler = std::make_unique<ScopedProfiler>("Eval GPU: sort required     ");
 
-    /* Setup indices for the sorting of the required array. */
-    thrust::sequence(thrust::device, sequence, sequence + n_required);
-
     /* Sort the array of required keys. */
-    thrust::sort_by_key(thrust::device, required, required + n_required, sequence);
+    thrust::sort(thrust::device, required, required + n_required);
 
     profiler = std::make_unique<ScopedProfiler>("Eval GPU: binary search     ");
 
@@ -192,30 +183,46 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_gpu_hashing(GpuDat
     profiler = std::make_unique<ScopedProfiler>("Eval GPU: check results     ");
 
     thrust::device_ptr<size_t> result_ptr(result);
-    auto iter = thrust::find(result_ptr, result_ptr + n_search, 1);
+    auto iter = thrust::find(thrust::device, result_ptr, result_ptr + n_search, true);
 
     if (iter != result_ptr + n_search)
     {
+        printf("Found!\n");
+
         /* Get the position of the found element and copy back its (unsorted) search value. */
         size_t i_search = thrust::distance(result_ptr, iter);
 
         __int128_t val = 0;
         cudaMemcpy(&val, search + i_search, sizeof(__int128_t), cudaMemcpyDeviceToHost);
 
-        /* Given the search value, we can find the required value's position and, via the sequence array, get the original index. */
-        auto iter = thrust::find(thrust::device, required, required + n_required, val);
-        size_t pos_i_required = thrust::distance(required, iter);
-        size_t i_required = 0;
-        cudaMemcpy(&i_required, sequence + pos_i_required, sizeof(size_t), cudaMemcpyDeviceToHost);
-
-        profiler.reset();
-
-        if (encode_first_as_required)
-            return {true, {i_required, i_search}};
-        else
-            return {true, {i_search, i_required}};
+        return {true, val};
     }
     profiler.reset();
 
-    return {false, {n_p1, n_p2}};
+    return {false, 0};
+}
+
+std::pair<size_t, size_t> find_hash_positions_gpu(GpuData &gpu_data, __int128_t hash, size_t n_p1, size_t n_p2)
+{
+    const bool encode_first_as_required = (n_p1 < n_p2);
+
+    __int128_t *required = gpu_data.required_buffer;
+    __int128_t *search = gpu_data.search_buffer;
+
+    const size_t n_required = gpu_data.n_required;
+    const size_t n_search = gpu_data.n_search;
+
+    auto iter_req = thrust::find(thrust::device, required, required + n_required, hash);
+    auto iter_search = thrust::find(thrust::device, search, search + n_search, hash);
+
+    assert(iter_req != required + n_required);
+    assert(iter_search != search + n_search);
+
+    auto pos_req = thrust::distance(required, iter_req);
+    auto pos_search = thrust::distance(search, iter_search);
+
+    if (encode_first_as_required)
+        return {pos_req, pos_search};
+    else
+        return {pos_search, pos_req};
 }
