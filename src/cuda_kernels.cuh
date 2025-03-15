@@ -32,7 +32,7 @@ public:
     size_t n_required;
 
     __int128_t *search_buffer{};
-    size_t *results_search_buffer{};
+    bool *results_search_buffer{};
     size_t len_search_buffer{}; /* Size of above buffers. */
     size_t n_search;
 

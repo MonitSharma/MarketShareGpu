@@ -85,9 +85,9 @@ void GpuData::copy_pairs_search(const std::vector<std::pair<size_t, size_t>> &pa
         cudaFree(search_buffer);
         cudaFree(results_search_buffer);
 
-        n_bytes_alloc += (sizeof(size_t) + sizeof(__int128_t)) * (new_len - len_search_buffer);
+        n_bytes_alloc += (sizeof(bool) + sizeof(__int128_t)) * (new_len - len_search_buffer);
         cudaMalloc(&search_buffer, new_len * sizeof(__int128_t));
-        cudaMalloc(&results_search_buffer, new_len * sizeof(size_t));
+        cudaMalloc(&results_search_buffer, new_len * sizeof(bool));
 
         len_search_buffer = new_len;
     }
@@ -168,7 +168,7 @@ std::pair<bool, __int128_t> find_equal_hash(GpuData &gpu_data)
 
     __int128_t *required = gpu_data.required_buffer;
     __int128_t *search = gpu_data.search_buffer;
-    size_t *result = gpu_data.results_search_buffer;
+    bool *result = gpu_data.results_search_buffer;
 
     /* Compute hashes of required vectors. */
     auto profiler = std::make_unique<ScopedProfiler>("Eval GPU: sort required     ");
@@ -182,7 +182,7 @@ std::pair<bool, __int128_t> find_equal_hash(GpuData &gpu_data)
 
     profiler = std::make_unique<ScopedProfiler>("Eval GPU: check results     ");
 
-    thrust::device_ptr<size_t> result_ptr(result);
+    thrust::device_ptr<bool> result_ptr(result);
     auto iter = thrust::find(thrust::device, result_ptr, result_ptr + n_search, true);
 
     if (iter != result_ptr + n_search)
