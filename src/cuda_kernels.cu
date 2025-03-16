@@ -57,7 +57,7 @@ void GpuData::resize_buffer(T **buffer, size_t &buffer_size, size_t n_elems_requ
 {
     if (n_elems_required > buffer_size)
     {
-        size_t new_buffer_size = static_cast<size_t>(n_elems_required * 1.4 + 1);
+        size_t new_buffer_size = static_cast<size_t>(n_elems_required * 1.1 + 1);
         assert(new_buffer_size > n_elems_required);
 
         cudaFree(*buffer);
