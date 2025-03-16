@@ -37,11 +37,11 @@ public:
     size_t n_cols{};
 
     /* GPU buffers. Get resized depending on the problem. */
-    __int128_t *required_buffer{};
+    size_t *required_buffer{};
     size_t len_required_buffer{}; /* Size of above buffers. */
     size_t n_required;
 
-    __int128_t *search_buffer{};
+    size_t *search_buffer{};
     size_t len_search_buffer{};
     bool *results_search_buffer{};
     size_t len_results_buffer{};
@@ -68,9 +68,8 @@ public:
     void copy_pairs_required(const std::vector<std::pair<size_t, size_t>> &pairs);
 };
 
-std::pair<bool, __int128_t> find_equal_hash(GpuData &gpu_data);
-std::pair<size_t, size_t> find_hash_positions_gpu(GpuData &gpu_data, __int128_t hash, size_t n_p1, size_t n_p2);
+std::vector<size_t> find_equal_hashes(GpuData &gpu_data);
+std::vector<std::pair<size_t, size_t>> find_hash_positions_gpu(GpuData &gpu_data, const std::vector<size_t>& hashes, size_t n_p1, size_t n_p2);
 
 void combine_and_encode_tuples_gpu(GpuData &gpu_data, const std::vector<PairsTuple> &tuples1, const std::vector<PairsTuple> &tuples2, size_t n_pairs1, size_t n_pairs2);
 void combine_and_encode_gpu(GpuData &gpu_data, const std::vector<std::pair<size_t, size_t>> &pairs1, const std::vector<std::pair<size_t, size_t>> &pairs2);
-void combine_and_encode_first_five_gpu(GpuData &gpu_data, const std::vector<std::pair<size_t, size_t>> &pairs1, const std::vector<std::pair<size_t, size_t>> &pairs2);

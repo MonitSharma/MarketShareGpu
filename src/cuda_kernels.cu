@@ -152,40 +152,50 @@ __global__ void flatten_tuples(const size_t *tuples, size_t n_tuples, size_t *pa
     }
 }
 
-void combine_and_encode_first_five_gpu(GpuData &gpu_data, const std::vector<std::pair<size_t, size_t>> &pairs1, const std::vector<std::pair<size_t, size_t>> &pairs2)
+__device__ size_t custom_hash(size_t x)
 {
-    const size_t m_rows = gpu_data.m_rows;
-    const size_t n_p1 = pairs1.size();
-    const size_t n_p2 = pairs2.size();
+    x ^= x >> 33;
+    x *= 0xff51afd7ed558ccdULL;
+    x ^= x >> 33;
+    x *= 0xc4ceb9fe1a85ec53ULL;
+    x ^= x >> 33;
+    return x;
+}
 
-    /* The shorter array will be encoded as required and will be sorted. */
-    const bool encode_first_as_required = (n_p1 < n_p2);
+/* Converts tuples into pairs. */
+template <bool ENCODE_REQUIRED>
+__global__ void flatten_and_encode_tuples(const size_t *tuples, size_t n_tuples, const size_t *__restrict__ scores1, const size_t *__restrict__ scores2, const size_t *__restrict__ rhs, size_t *__restrict__ hashes, size_t m_rows)
+{
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-    auto profiler = std::make_unique<ScopedProfiler>("Eval GPU: combine + encode  ");
+    if (idx >= n_tuples)
+        return;
 
-    gpu_data.copy_pairs_required(encode_first_as_required ? pairs1 : pairs2);
-    gpu_data.copy_pairs_search(encode_first_as_required ? pairs2 : pairs1);
+    const size_t *tuple = tuples + 4 * idx;
+    size_t first = tuple[0];
+    size_t pair_second_beg = tuple[1];
+    size_t pair_second_end = tuple[2] + pair_second_beg;
+    size_t pairs_offset = tuple[3];
 
-    /* Each pair is treated by one single thread. */
-    constexpr int block_dim = 128;
-    int n_blocks_1 = (n_p1 + block_dim - 1) / block_dim;
-    int n_blocks_2 = (n_p2 + block_dim - 1) / block_dim;
-
-    size_t encode_start = 0;
-    size_t encode_end = std::min(size_t(5), m_rows);
-
-    if (encode_first_as_required)
+    for (size_t second = pair_second_beg; second < pair_second_end; ++second)
     {
-        combine_and_encode_kernel<true><<<n_blocks_1, block_dim>>>(gpu_data.set1_scores, gpu_data.set2_scores, gpu_data.rhs, (size_t *)gpu_data.required_buffer, n_p1, encode_start, encode_end, m_rows);
-        combine_and_encode_kernel<false><<<n_blocks_2, block_dim>>>(gpu_data.set3_scores, gpu_data.set4_scores, gpu_data.rhs, (size_t *)gpu_data.search_buffer, n_p2, encode_start, encode_end, m_rows);
-    }
-    else
-    {
-        combine_and_encode_kernel<false><<<n_blocks_1, block_dim>>>(gpu_data.set1_scores, gpu_data.set2_scores, gpu_data.rhs, (size_t *)gpu_data.search_buffer, n_p1, encode_start, encode_end, m_rows);
-        combine_and_encode_kernel<true><<<n_blocks_2, block_dim>>>(gpu_data.set3_scores, gpu_data.set4_scores, gpu_data.rhs, (size_t *)gpu_data.required_buffer, n_p2, encode_start, encode_end, m_rows);
-    }
+        size_t key = 0;
 
-    profiler.reset();
+        /* Compute the hash of this tuple. */
+        for (size_t i_row = 0; i_row < m_rows; ++i_row)
+        {
+            /* Compute the pair's score of this row and add it (encoded) to key. */
+            size_t row_score = scores1[first * m_rows + i_row] + scores2[second * m_rows + i_row];
+
+            if (ENCODE_REQUIRED)
+                row_score = rhs[i_row] - row_score;
+
+            key ^= custom_hash(row_score) + 0x9e3779b9 + (key << 6) + (key >> 2);
+        }
+
+        hashes[pairs_offset] = key;
+        ++pairs_offset;
+    }
 }
 
 void combine_and_encode_tuples_gpu(GpuData &gpu_data, const std::vector<PairsTuple> &tuples1, const std::vector<PairsTuple> &tuples2, size_t n_pairs1, size_t n_pairs2)
@@ -222,20 +232,12 @@ void combine_and_encode_tuples_gpu(GpuData &gpu_data, const std::vector<PairsTup
     gpu_data.copy_tuples(required);
     int n_blocks = (n_tuples_required + n_threads - 1) / n_threads;
     assert(n_blocks > 0);
-    flatten_tuples<<<n_blocks, n_threads>>>(gpu_data.tuples_buffer, n_tuples_required, (size_t *)gpu_data.required_buffer);
+    flatten_and_encode_tuples<true><<<n_blocks, n_threads>>>(gpu_data.tuples_buffer, n_tuples_required, required_set1_scores, required_set2_scores, gpu_data.rhs, gpu_data.required_buffer, m_rows);
 
     gpu_data.copy_tuples(search);
     n_blocks = (n_tuples_search + n_threads - 1) / n_threads;
     assert(n_blocks > 0);
-    flatten_tuples<<<n_blocks, n_threads>>>(gpu_data.tuples_buffer, n_tuples_search, (size_t *)gpu_data.search_buffer);
-
-    int n_blocks_1 = (gpu_data.n_required + n_threads - 1) / n_threads;
-    int n_blocks_2 = (gpu_data.n_search + n_threads - 1) / n_threads;
-    assert(n_blocks_1 > 0);
-    assert(n_blocks_2 > 0);
-
-    combine_and_encode_kernel<true><<<n_blocks_1, n_threads>>>(required_set1_scores, required_set2_scores, gpu_data.rhs, (size_t *)gpu_data.required_buffer, gpu_data.n_required, 0, m_rows, m_rows);
-    combine_and_encode_kernel<false><<<n_blocks_2, n_threads>>>(search_set1_scores, search_set2_scores, gpu_data.rhs, (size_t *)gpu_data.search_buffer, gpu_data.n_search, 0, m_rows, m_rows);
+    flatten_and_encode_tuples<false><<<n_blocks, n_threads>>>(gpu_data.tuples_buffer, n_tuples_search, search_set1_scores, search_set2_scores, gpu_data.rhs, gpu_data.search_buffer, m_rows);
 
     profiler.reset();
 }
@@ -273,14 +275,14 @@ void combine_and_encode_gpu(GpuData &gpu_data, const std::vector<std::pair<size_
     profiler.reset();
 }
 
-std::pair<bool, __int128_t> find_equal_hash(GpuData &gpu_data)
+std::vector<size_t> find_equal_hashes(GpuData &gpu_data)
 {
     /* The shorter array will be encoded as required and will be sorted. */
     const size_t n_required = gpu_data.n_required;
     const size_t n_search = gpu_data.n_search;
 
-    __int128_t *required = gpu_data.required_buffer;
-    __int128_t *search = gpu_data.search_buffer;
+    size_t *required = gpu_data.required_buffer;
+    size_t *search = gpu_data.search_buffer;
     bool *result = gpu_data.results_search_buffer;
 
     /* Compute hashes of required vectors. */
@@ -295,45 +297,55 @@ std::pair<bool, __int128_t> find_equal_hash(GpuData &gpu_data)
 
     profiler = std::make_unique<ScopedProfiler>("Eval GPU: check results     ");
 
-    thrust::device_ptr<bool> result_ptr(result);
-    auto iter = thrust::find(thrust::device, result_ptr, result_ptr + n_search, true);
+    std::vector<size_t> hashes;
+    auto iter = thrust::find(thrust::device, result, result + n_search, true);
 
-    if (iter != result_ptr + n_search)
+    while (iter != result + n_search)
     {
+        /* Retrieve all potential matches! If we have duplicates in our hash, we might skip hashes here.. */
         /* Get the position of the found element and copy back its (unsorted) search value. */
-        size_t i_search = thrust::distance(result_ptr, iter);
+        size_t i_search = thrust::distance(result, iter);
 
-        __int128_t val = 0;
-        cudaMemcpy(&val, search + i_search, sizeof(__int128_t), cudaMemcpyDeviceToHost);
+        size_t val = 0;
+        cudaMemcpy(&val, search + i_search, sizeof(size_t), cudaMemcpyDeviceToHost);
+        hashes.push_back(val);
 
-        return {true, val};
+        iter = thrust::find(thrust::device, iter + 1, result + n_search, true);
     }
     profiler.reset();
-
-    return {false, 0};
+    return hashes;
 }
 
-std::pair<size_t, size_t> find_hash_positions_gpu(GpuData &gpu_data, __int128_t hash, size_t n_p1, size_t n_p2)
+std::vector<std::pair<size_t, size_t>> find_hash_positions_gpu(GpuData &gpu_data, const std::vector<size_t> &hashes, size_t n_p1, size_t n_p2)
 {
     const bool encode_first_as_required = (n_p1 < n_p2);
 
-    __int128_t *required = gpu_data.required_buffer;
-    __int128_t *search = gpu_data.search_buffer;
+    std::vector<std::pair<size_t, size_t>> solution_candidates;
+    solution_candidates.reserve(hashes.size());
+
+    size_t *required = gpu_data.required_buffer;
+    size_t *search = gpu_data.search_buffer;
 
     const size_t n_required = gpu_data.n_required;
     const size_t n_search = gpu_data.n_search;
 
-    auto iter_req = thrust::find(thrust::device, required, required + n_required, hash);
-    auto iter_search = thrust::find(thrust::device, search, search + n_search, hash);
+    /* Retrieve all potential matches! If we have duplicates in our hash, we might skip hashes here.. */
+    for (const auto hash : hashes)
+    {
+        auto iter_req = thrust::find(thrust::device, required, required + n_required, hash);
+        auto iter_search = thrust::find(thrust::device, search, search + n_search, hash);
 
-    assert(iter_req != required + n_required);
-    assert(iter_search != search + n_search);
+        assert(iter_req != required + n_required);
+        assert(iter_search != search + n_search);
 
-    auto pos_req = thrust::distance(required, iter_req);
-    auto pos_search = thrust::distance(search, iter_search);
+        auto pos_req = thrust::distance(required, iter_req);
+        auto pos_search = thrust::distance(search, iter_search);
 
-    if (encode_first_as_required)
-        return {pos_req, pos_search};
-    else
-        return {pos_search, pos_req};
+        if (encode_first_as_required)
+            solution_candidates.emplace_back(pos_req, pos_search);
+        else
+            solution_candidates.emplace_back(pos_search, pos_req);
+    }
+
+    return solution_candidates;
 }

@@ -478,12 +478,49 @@ void print_info_line(const GpuData &gpu_data, size_t i_iter, double time, size_t
     }
 }
 
+bool verify_solution(const std::pair<size_t, size_t> &solution, const std::vector<PairsTuple> &same_score_q1, const std::vector<PairsTuple> &same_score_q2,
+                     const std::vector<std::vector<size_t>> &set1_subsets, const std::vector<std::vector<size_t>> &set2_subsets_sorted_asc, const std::vector<std::vector<size_t>> &set3_subsets, const std::vector<std::vector<size_t>> &set4_subsets_sorted_desc, const std::vector<size_t> &subset_sum_1d, const std::vector<size_t> &offsets, const MarkShareFeas &ms_inst)
+{
+    /* Print and verify the solution! */
+    /* Get the correct pairs. */
+    size_t pos_q1 = 0;
+    size_t pos_q2 = 0;
+
+    while (solution.first >= same_score_q1[pos_q1].pairs_offset + same_score_q1[pos_q1].pairs_n_second)
+        ++pos_q1;
+    while (solution.second >= same_score_q2[pos_q2].pairs_offset + same_score_q2[pos_q2].pairs_n_second)
+        ++pos_q2;
+
+    assert(solution.first - same_score_q1[pos_q1].pairs_offset < same_score_q1[pos_q1].pairs_n_second);
+    assert(solution.second - same_score_q2[pos_q2].pairs_offset < same_score_q2[pos_q2].pairs_n_second);
+
+    const size_t pair_q1_second = same_score_q1[pos_q1].pairs_second_beg + solution.first - same_score_q1[pos_q1].pairs_offset;
+    const size_t pair_q2_second = same_score_q2[pos_q2].pairs_second_beg + solution.second - same_score_q2[pos_q2].pairs_offset;
+    std::pair<size_t, size_t> pair_q1 = {same_score_q1[pos_q1].pairs_first, pair_q1_second};
+    std::pair<size_t, size_t> pair_q2 = {same_score_q2[pos_q2].pairs_first, pair_q2_second};
+
+    std::vector<size_t> solution_1d(subset_sum_1d.size());
+
+    const std::vector<const std::vector<size_t> *> vectors = {&set1_subsets[pair_q1.first], &set2_subsets_sorted_asc[pair_q1.second], &set3_subsets[pair_q2.first], &set4_subsets_sorted_desc[pair_q2.second]};
+
+    size_t len;
+    concat_vectors(solution_1d, len, vectors, offsets);
+
+    /* We found a solution. Construct it, print it, and return. */
+    if (!ms_inst.is_solution_feasible(solution_1d, len))
+    {
+        printf("Error, solution is not feasible!\n");
+        return false;
+    }
+
+    return true;
+}
+
 bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subset_sum_1d, const MarkShareFeas &ms_inst, bool run_on_gpu, const std::string &instance_name)
 {
     const size_t split_index1 = subset_sum_1d.size() / 4;
     const size_t split_index2 = subset_sum_1d.size() / 2;
     const size_t split_index3 = 3 * subset_sum_1d.size() / 4;
-    bool run_on_gpu_reduced = false;
     printf("Splitting sets into [0, %ld]; [%ld, %ld]; [%ld, %ld]; [%ld, %ld]\n", split_index1 - 1, split_index1, split_index2 - 1, split_index2, split_index3 - 1, split_index3, subset_sum_1d.size());
 
     std::cout << "Running with " << omp_get_max_threads() << " threads" << std::endl;
@@ -673,26 +710,32 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
             bool found = false;
             std::pair<size_t, size_t> solution;
 
-            if (run_on_gpu_reduced)
-            {
-                // combine_and_encode_first_five_gpu(gpu_data, same_score_q1, same_score_q2);
-
-                // compute_set_intersection(gpu_data);
-            }
-            else if (run_on_gpu)
+            if (run_on_gpu)
             {
                 combine_and_encode_tuples_gpu(gpu_data, same_score_q1, same_score_q2, n_q1, n_q2);
 
                 profiler_inside_loop = std::make_unique<ScopedProfiler>("Evaluate solutions GPU      ");
-                auto [done, hash] = find_equal_hash(gpu_data);
-                found = done;
+                const std::vector<size_t> hashes = find_equal_hashes(gpu_data);
 
-                if (found)
+                if (!hashes.empty())
                 {
                     /* Retrieve the actual solution. We have to copy encode our arrays once more and look for the hash afterwards. */
                     combine_and_encode_tuples_gpu(gpu_data, same_score_q1, same_score_q2, n_q1, n_q2);
 
-                    solution = find_hash_positions_gpu(gpu_data, hash, n_q1, n_q2);
+                    const std::vector<std::pair<size_t, size_t>> candidates = find_hash_positions_gpu(gpu_data, hashes, n_q1, n_q2);
+
+                    /* Check all potential solutions. */
+                    for (const auto &solution_cand : candidates)
+                    {
+                        const bool feasible = verify_solution(solution_cand, same_score_q1, same_score_q2, set1_subsets, set2_subsets_sorted_asc, set3_subsets, set4_subsets_sorted_desc, subset_sum_1d, offsets, ms_inst);
+
+                        if (feasible)
+                        {
+                            solution = solution_cand;
+                            found = true;
+                            break;
+                        }
+                    }
                 }
                 profiler_inside_loop.reset();
             }
