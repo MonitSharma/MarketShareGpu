@@ -91,7 +91,7 @@ void GpuData::copy_pairs_search(const std::vector<std::pair<size_t, size_t>> &pa
     n_search = len_needed;
 }
 
-void GpuData::copy_tuples(const PairsTuple* tuples, size_t n_tuples)
+void GpuData::copy_tuples(const PairsTuple *tuples, size_t n_tuples)
 {
     size_t len_needed = n_tuples * 4;
     resize_buffer(&tuples_buffer, len_tuples_buffer, len_needed);
@@ -198,85 +198,73 @@ __global__ void flatten_and_encode_tuples(const size_t *tuples, size_t n_tuples,
     }
 }
 
-void combine_and_encode_tuples_gpu(GpuData &gpu_data, const PairsTuple* tuples1, const PairsTuple* tuples2, size_t n_tuples1, size_t n_tuples2, size_t n_pairs1, size_t n_pairs2)
+void combine_and_encode_tuples_required_gpu(GpuData &gpu_data, const PairsTuple *tuples, size_t n_tuples, size_t n_pairs, const size_t *scores1, const size_t *scores2)
 {
-    auto profiler = std::make_unique<ScopedProfiler>("Eval GPU: combine + encode  ");
+    const size_t m_rows = gpu_data.m_rows;
+    /* Each tuple is treated by one warp. */
+    const int n_threads = 256;
 
+    gpu_data.n_required = n_pairs;
+
+    /* Reserve space for hashes. */
+    gpu_data.resize_buffer(&gpu_data.required_buffer, gpu_data.len_required_buffer, gpu_data.n_required);
+
+    /* Copy and flatten the tuples. */
+    gpu_data.copy_tuples(tuples, n_tuples);
+    int n_blocks = (n_tuples + n_threads - 1) / n_threads;
+    assert(n_blocks > 0);
+    flatten_and_encode_tuples<true><<<n_blocks, n_threads>>>(gpu_data.tuples_buffer, n_tuples, scores1, scores2, gpu_data.rhs, gpu_data.required_buffer, m_rows);
+}
+
+void combine_and_encode_tuples_search_gpu(GpuData &gpu_data, const PairsTuple *tuples, size_t n_tuples, size_t n_pairs, const size_t *scores1, const size_t *scores2)
+{
+    const int n_threads = 256;
     /* Each tuple is treated by one warp. */
     const size_t m_rows = gpu_data.m_rows;
+
+    gpu_data.n_search = n_pairs;
+
+    /* Reserve space for hashes. */
+    gpu_data.resize_buffer(&gpu_data.search_buffer, gpu_data.len_search_buffer, gpu_data.n_search);
+    gpu_data.resize_buffer(&gpu_data.results_search_buffer, gpu_data.len_results_buffer, gpu_data.n_search);
+
+    gpu_data.copy_tuples(tuples, n_tuples);
+    int n_blocks = (n_tuples + n_threads - 1) / n_threads;
+    assert(n_blocks > 0);
+    flatten_and_encode_tuples<false><<<n_blocks, n_threads>>>(gpu_data.tuples_buffer, n_tuples, scores1, scores2, gpu_data.rhs, gpu_data.search_buffer, m_rows);
+}
+
+void combine_and_encode_tuples_gpu(GpuData &gpu_data, const PairsTuple *tuples1, const PairsTuple *tuples2, size_t n_tuples1, size_t n_tuples2, size_t n_pairs1, size_t n_pairs2)
+{
+    auto profiler = std::make_unique<ScopedProfiler>("Eval GPU: combine + encode  ");
 
     /* The shorter array will be encoded as required. */
     const bool encode_first_as_required = (n_pairs1 < n_pairs2);
 
-    const auto *required = encode_first_as_required ? tuples1 : tuples2;
-    const auto n_tuples_required = encode_first_as_required ? n_tuples1 : n_tuples2;
-
-    const auto *search = encode_first_as_required ? tuples2 : tuples1;
-    const auto n_tuples_search = encode_first_as_required ? n_tuples2 : n_tuples1;
-
-    const size_t *required_set1_scores = encode_first_as_required ? gpu_data.set1_scores : gpu_data.set3_scores;
-    const size_t *required_set2_scores = encode_first_as_required ? gpu_data.set2_scores : gpu_data.set4_scores;
-
-    const size_t *search_set1_scores = encode_first_as_required ? gpu_data.set3_scores : gpu_data.set1_scores;
-    const size_t *search_set2_scores = encode_first_as_required ? gpu_data.set4_scores : gpu_data.set2_scores;
-
-    gpu_data.n_required = encode_first_as_required ? n_pairs1 : n_pairs2;
-    gpu_data.n_search = encode_first_as_required ? n_pairs2 : n_pairs1;
-
-    /* Reserve space for hashes. */
-    gpu_data.resize_buffer(&gpu_data.required_buffer, gpu_data.len_required_buffer, gpu_data.n_required);
-    gpu_data.resize_buffer(&gpu_data.search_buffer, gpu_data.len_search_buffer, gpu_data.n_search);
-    gpu_data.resize_buffer(&gpu_data.results_search_buffer, gpu_data.len_results_buffer, gpu_data.n_search);
-
-    const int n_threads = 256;
-    /* Copy and flatten the tuples. */
-    gpu_data.copy_tuples(required, n_tuples_required);
-    int n_blocks = (n_tuples_required + n_threads - 1) / n_threads;
-    assert(n_blocks > 0);
-    flatten_and_encode_tuples<true><<<n_blocks, n_threads>>>(gpu_data.tuples_buffer, n_tuples_required, required_set1_scores, required_set2_scores, gpu_data.rhs, gpu_data.required_buffer, m_rows);
-
-    gpu_data.copy_tuples(search, n_tuples_search);
-    n_blocks = (n_tuples_search + n_threads - 1) / n_threads;
-    assert(n_blocks > 0);
-    flatten_and_encode_tuples<false><<<n_blocks, n_threads>>>(gpu_data.tuples_buffer, n_tuples_search, search_set1_scores, search_set2_scores, gpu_data.rhs, gpu_data.search_buffer, m_rows);
-
-    profiler.reset();
-}
-
-void combine_and_encode_gpu(GpuData &gpu_data, const std::vector<std::pair<size_t, size_t>> &pairs1, const std::vector<std::pair<size_t, size_t>> &pairs2)
-{
-    const size_t m_rows = gpu_data.m_rows;
-    const size_t n_p1 = pairs1.size();
-    const size_t n_p2 = pairs2.size();
-
-    /* The shorter array will be encoded as required and will be sorted. */
-    const bool encode_first_as_required = (n_p1 < n_p2);
-
-    auto profiler = std::make_unique<ScopedProfiler>("Eval GPU: combine + encode  ");
-
-    gpu_data.copy_pairs_required(encode_first_as_required ? pairs1 : pairs2);
-    gpu_data.copy_pairs_search(encode_first_as_required ? pairs2 : pairs1);
-
-    /* Each pair is treated by one single thread. */
-    constexpr int block_dim = 128;
-    int n_blocks_1 = (n_p1 + block_dim - 1) / block_dim;
-    int n_blocks_2 = (n_p2 + block_dim - 1) / block_dim;
-
     if (encode_first_as_required)
     {
-        combine_and_encode_kernel<true><<<n_blocks_1, block_dim>>>(gpu_data.set1_scores, gpu_data.set2_scores, gpu_data.rhs, (size_t *)gpu_data.required_buffer, n_p1, 0, m_rows, m_rows);
-        combine_and_encode_kernel<false><<<n_blocks_2, block_dim>>>(gpu_data.set3_scores, gpu_data.set4_scores, gpu_data.rhs, (size_t *)gpu_data.search_buffer, n_p2, 0, m_rows, m_rows);
+        combine_and_encode_tuples_required_gpu(gpu_data, tuples1, n_tuples1, n_pairs1, gpu_data.set1_scores, gpu_data.set2_scores);
+        combine_and_encode_tuples_search_gpu(gpu_data, tuples2, n_tuples2, n_pairs2, gpu_data.set3_scores, gpu_data.set4_scores);
     }
     else
     {
-        combine_and_encode_kernel<false><<<n_blocks_1, block_dim>>>(gpu_data.set1_scores, gpu_data.set2_scores, gpu_data.rhs, (size_t *)gpu_data.search_buffer, n_p1, 0, m_rows, m_rows);
-        combine_and_encode_kernel<true><<<n_blocks_2, block_dim>>>(gpu_data.set3_scores, gpu_data.set4_scores, gpu_data.rhs, (size_t *)gpu_data.required_buffer, n_p2, 0, m_rows, m_rows);
+        combine_and_encode_tuples_required_gpu(gpu_data, tuples2, n_tuples2, n_pairs2, gpu_data.set3_scores, gpu_data.set4_scores);
+        combine_and_encode_tuples_search_gpu(gpu_data, tuples1, n_tuples1, n_pairs1, gpu_data.set1_scores, gpu_data.set2_scores);
     }
 
     profiler.reset();
 }
 
-std::vector<size_t> find_equal_hashes(GpuData &gpu_data)
+void sort_required_gpu(GpuData &gpu_data)
+{
+    const size_t n_required = gpu_data.n_required;
+    size_t *required = gpu_data.required_buffer;
+
+    /* Sort the array of required keys. */
+    thrust::sort(thrust::device, required, required + n_required);
+}
+
+std::vector<size_t> find_equal_hashes(GpuData &gpu_data, bool sort_required)
 {
     /* The shorter array will be encoded as required and will be sorted. */
     const size_t n_required = gpu_data.n_required;
@@ -288,9 +276,10 @@ std::vector<size_t> find_equal_hashes(GpuData &gpu_data)
 
     /* Compute hashes of required vectors. */
     auto profiler = std::make_unique<ScopedProfiler>("Eval GPU: sort required     ");
-
-    /* Sort the array of required keys. */
-    thrust::sort(thrust::device, required, required + n_required);
+    if (sort_required)
+    {
+        sort_required_gpu(gpu_data);
+    }
 
     profiler = std::make_unique<ScopedProfiler>("Eval GPU: binary search     ");
 
