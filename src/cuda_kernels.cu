@@ -91,14 +91,14 @@ void GpuData::copy_pairs_search(const std::vector<std::pair<size_t, size_t>> &pa
     n_search = len_needed;
 }
 
-void GpuData::copy_tuples(const std::vector<PairsTuple> &tuples)
+void GpuData::copy_tuples(const PairsTuple* tuples, size_t n_tuples)
 {
-    size_t len_needed = tuples.size() * 4;
+    size_t len_needed = n_tuples * 4;
     resize_buffer(&tuples_buffer, len_tuples_buffer, len_needed);
 
-    cudaError_t err = cudaMemcpy(tuples_buffer, tuples.data(), len_needed * sizeof(size_t), cudaMemcpyHostToDevice);
+    cudaError_t err = cudaMemcpy(tuples_buffer, tuples, len_needed * sizeof(size_t), cudaMemcpyHostToDevice);
     assert(err == cudaSuccess);
-    n_tuples = tuples.size();
+    this->n_tuples = n_tuples;
 }
 
 template <bool ENCODE_REQUIRED>
@@ -198,7 +198,7 @@ __global__ void flatten_and_encode_tuples(const size_t *tuples, size_t n_tuples,
     }
 }
 
-void combine_and_encode_tuples_gpu(GpuData &gpu_data, const std::vector<PairsTuple> &tuples1, const std::vector<PairsTuple> &tuples2, size_t n_pairs1, size_t n_pairs2)
+void combine_and_encode_tuples_gpu(GpuData &gpu_data, const PairsTuple* tuples1, const PairsTuple* tuples2, size_t n_tuples1, size_t n_tuples2, size_t n_pairs1, size_t n_pairs2)
 {
     auto profiler = std::make_unique<ScopedProfiler>("Eval GPU: combine + encode  ");
 
@@ -208,8 +208,11 @@ void combine_and_encode_tuples_gpu(GpuData &gpu_data, const std::vector<PairsTup
     /* The shorter array will be encoded as required. */
     const bool encode_first_as_required = (n_pairs1 < n_pairs2);
 
-    const auto &required = encode_first_as_required ? tuples1 : tuples2;
-    const auto &search = encode_first_as_required ? tuples2 : tuples1;
+    const auto *required = encode_first_as_required ? tuples1 : tuples2;
+    const auto n_tuples_required = encode_first_as_required ? n_tuples1 : n_tuples2;
+
+    const auto *search = encode_first_as_required ? tuples2 : tuples1;
+    const auto n_tuples_search = encode_first_as_required ? n_tuples2 : n_tuples1;
 
     const size_t *required_set1_scores = encode_first_as_required ? gpu_data.set1_scores : gpu_data.set3_scores;
     const size_t *required_set2_scores = encode_first_as_required ? gpu_data.set2_scores : gpu_data.set4_scores;
@@ -217,8 +220,6 @@ void combine_and_encode_tuples_gpu(GpuData &gpu_data, const std::vector<PairsTup
     const size_t *search_set1_scores = encode_first_as_required ? gpu_data.set3_scores : gpu_data.set1_scores;
     const size_t *search_set2_scores = encode_first_as_required ? gpu_data.set4_scores : gpu_data.set2_scores;
 
-    const auto n_tuples_required = required.size();
-    const auto n_tuples_search = search.size();
     gpu_data.n_required = encode_first_as_required ? n_pairs1 : n_pairs2;
     gpu_data.n_search = encode_first_as_required ? n_pairs2 : n_pairs1;
 
@@ -229,12 +230,12 @@ void combine_and_encode_tuples_gpu(GpuData &gpu_data, const std::vector<PairsTup
 
     const int n_threads = 256;
     /* Copy and flatten the tuples. */
-    gpu_data.copy_tuples(required);
+    gpu_data.copy_tuples(required, n_tuples_required);
     int n_blocks = (n_tuples_required + n_threads - 1) / n_threads;
     assert(n_blocks > 0);
     flatten_and_encode_tuples<true><<<n_blocks, n_threads>>>(gpu_data.tuples_buffer, n_tuples_required, required_set1_scores, required_set2_scores, gpu_data.rhs, gpu_data.required_buffer, m_rows);
 
-    gpu_data.copy_tuples(search);
+    gpu_data.copy_tuples(search, n_tuples_search);
     n_blocks = (n_tuples_search + n_threads - 1) / n_threads;
     assert(n_blocks > 0);
     flatten_and_encode_tuples<false><<<n_blocks, n_threads>>>(gpu_data.tuples_buffer, n_tuples_search, search_set1_scores, search_set2_scores, gpu_data.rhs, gpu_data.search_buffer, m_rows);

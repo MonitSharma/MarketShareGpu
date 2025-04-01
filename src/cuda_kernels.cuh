@@ -60,10 +60,7 @@ public:
     template <typename T>
     void resize_buffer(T **buffer, size_t &buffer_size, size_t n_elems_required);
 
-    // void resize_required(size_t n_hashes);
-    // void resize_search(size_t n_hashes);
-
-    void copy_tuples(const std::vector<PairsTuple> &tuples);
+    void copy_tuples(const PairsTuple* tuples, size_t n_tuples);
     void copy_pairs_search(const std::vector<std::pair<size_t, size_t>> &pairs);
     void copy_pairs_required(const std::vector<std::pair<size_t, size_t>> &pairs);
 };
@@ -71,5 +68,5 @@ public:
 std::vector<size_t> find_equal_hashes(GpuData &gpu_data);
 std::vector<std::pair<size_t, size_t>> find_hash_positions_gpu(GpuData &gpu_data, const std::vector<size_t>& hashes, size_t n_p1, size_t n_p2);
 
-void combine_and_encode_tuples_gpu(GpuData &gpu_data, const std::vector<PairsTuple> &tuples1, const std::vector<PairsTuple> &tuples2, size_t n_pairs1, size_t n_pairs2);
+void combine_and_encode_tuples_gpu(GpuData &gpu_data, const PairsTuple* tuples1, const PairsTuple* tuples2, size_t n_tuples1, size_t n_tuples2, size_t n_pairs1, size_t n_pairs2);
 void combine_and_encode_gpu(GpuData &gpu_data, const std::vector<std::pair<size_t, size_t>> &pairs1, const std::vector<std::pair<size_t, size_t>> &pairs2);

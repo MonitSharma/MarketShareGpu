@@ -464,22 +464,24 @@ void combine_scores_cpu(const std::vector<size_t> &set1_scores, const std::vecto
 void print_info_line(const GpuData &gpu_data, size_t i_iter, double time, size_t score1, size_t score2, size_t n_q1, size_t n_q2)
 {
     bool print = false;
-    if (i_iter < 1000000)
-        print = true;
-    else if (i_iter < 100 && i_iter % 10 == 0)
-        print = true;
-    else if (i_iter % 100 == 0)
+    // if (i_iter < 10)
+    //     print = true;
+    // else if (i_iter < 100 && i_iter % 10 == 0)
+    //     print = true;
+    // else if (i_iter % 100 == 0)
+    //     print = true;
+
+    if (i_iter < 10 || i_iter % 10 == 0)
         print = true;
 
     if (print)
     {
         const double n_gb = gpu_data.get_gb_allocated();
-        printf("%5ld %8.2fs [%.6f GB]: %6ld + %6ld; %ld x %ld = %ld possible solutions\n", i_iter, time, n_gb, score1, score2, n_q1, n_q2, n_q1 * n_q2);
+        printf("%5ld %8.2fs [%.6f GB]: %6ld + %6ld; %ld x %ld = %lld possible solutions\n", i_iter, time, n_gb, score1, score2, n_q1, n_q2, (long long)n_q1 * n_q2);
     }
 }
 
-bool verify_solution(const std::pair<size_t, size_t> &solution, const std::vector<PairsTuple> &same_score_q1, const std::vector<PairsTuple> &same_score_q2,
-                     const std::vector<std::vector<size_t>> &set1_subsets, const std::vector<std::vector<size_t>> &set2_subsets_sorted_asc, const std::vector<std::vector<size_t>> &set3_subsets, const std::vector<std::vector<size_t>> &set4_subsets_sorted_desc, const std::vector<size_t> &subset_sum_1d, const std::vector<size_t> &offsets, const MarkShareFeas &ms_inst)
+bool verify_solution(const std::pair<size_t, size_t> &solution, const PairsTuple *same_score_q1, size_t n_tuples_q1, const PairsTuple *same_score_q2, size_t n_tuples_q2, const std::vector<std::vector<size_t>> &set1_subsets, const std::vector<std::vector<size_t>> &set2_subsets_sorted_asc, const std::vector<std::vector<size_t>> &set3_subsets, const std::vector<std::vector<size_t>> &set4_subsets_sorted_desc, const std::vector<size_t> &subset_sum_1d, const std::vector<size_t> &offsets, const MarkShareFeas &ms_inst)
 {
     /* Print and verify the solution! */
     /* Get the correct pairs. */
@@ -487,9 +489,15 @@ bool verify_solution(const std::pair<size_t, size_t> &solution, const std::vecto
     size_t pos_q2 = 0;
 
     while (solution.first >= same_score_q1[pos_q1].pairs_offset + same_score_q1[pos_q1].pairs_n_second)
+    {
         ++pos_q1;
+        assert(pos_q1 < n_tuples_q1);
+    }
     while (solution.second >= same_score_q2[pos_q2].pairs_offset + same_score_q2[pos_q2].pairs_n_second)
+    {
         ++pos_q2;
+        assert(pos_q2 < n_tuples_q2);
+    }
 
     assert(solution.first - same_score_q1[pos_q1].pairs_offset < same_score_q1[pos_q1].pairs_n_second);
     assert(solution.second - same_score_q2[pos_q2].pairs_offset < same_score_q2[pos_q2].pairs_n_second);
@@ -630,12 +638,26 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
 
         if (score == rhs_subset_sum_1d)
         {
+            /* 3000000000 ~= 56 GB of active storage requirement. 4000000000 goes OOM on H200. 3500000000 works and goes up to 63.6 GB. 3900000000 also works and is about ~= 70.11 */
+            constexpr size_t max_pairs_per_chunk = 3900000000;
+            // constexpr size_t max_pairs_per_chunk = 400;
+            std::vector<size_t> chunks_q1_n_pairs;
+            std::vector<size_t> chunks_q1_beg;
+            std::vector<size_t> chunks_q2_n_pairs;
+            std::vector<size_t> chunks_q2_beg;
+
+            chunks_q1_beg.push_back(0);
+            chunks_q2_beg.push_back(0);
+
+            size_t n_pairs_q1_chunk = 0;
+            size_t n_pairs_q2_chunk = 0;
+
             ++i_iter_checking;
             /* Clear vectors but keep their old capacity. */
             same_score_q1.clear();
             same_score_q2.clear();
-            size_t n_q1 = 0;
-            size_t n_q2 = 0;
+            size_t n_pairs_q1 = 0;
+            size_t n_pairs_q2 = 0;
 
             auto profiler_inside_loop = std::make_unique<ScopedProfiler>("Candidate extraction        ");
 
@@ -660,8 +682,18 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
                             ++pos_set2_weights_end;
 
                         size_t n_pairs = pos_set2_weights_end - pos_set2_weights_beg;
-                        same_score_q1.emplace_back(pair1_same_score.first, pos_set2_weights_beg, n_pairs, n_q1);
-                        n_q1 += n_pairs;
+                        assert(n_pairs <= max_pairs_per_chunk);
+
+                        if (n_pairs + n_pairs_q1_chunk >= max_pairs_per_chunk)
+                        {
+                            chunks_q1_beg.push_back(same_score_q1.size());
+                            chunks_q1_n_pairs.push_back(n_pairs_q1_chunk);
+                            n_pairs_q1_chunk = 0;
+                        }
+
+                        same_score_q1.emplace_back(pair1_same_score.first, pos_set2_weights_beg, n_pairs, n_pairs_q1_chunk);
+                        n_pairs_q1_chunk += n_pairs;
+                        n_pairs_q1 += n_pairs;
 
                         if (pos_set2_weights_end < set2_weights.size())
                         {
@@ -670,6 +702,8 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
                             std::push_heap(heap1.begin(), heap1.end(), min_cmp);
                         }
                     }
+                    chunks_q1_n_pairs.push_back(n_pairs_q1_chunk);
+                    chunks_q1_beg.push_back(same_score_q1.size());
                 }
 #pragma omp section
                 {
@@ -690,9 +724,18 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
                             ++pos_set4_weights_end;
 
                         const size_t n_pairs = pos_set4_weights_end - pos_set4_weights_beg;
+                        assert(n_pairs <= max_pairs_per_chunk);
 
-                        same_score_q2.emplace_back(pair2_same_score.first, pos_set4_weights_beg, n_pairs, n_q2);
-                        n_q2 += n_pairs;
+                        if (n_pairs + n_pairs_q2_chunk >= max_pairs_per_chunk)
+                        {
+                            chunks_q2_beg.push_back(same_score_q2.size());
+                            chunks_q2_n_pairs.push_back(n_pairs_q2_chunk);
+                            n_pairs_q2_chunk = 0;
+                        }
+
+                        same_score_q2.emplace_back(pair2_same_score.first, pos_set4_weights_beg, n_pairs, n_pairs_q2_chunk);
+                        n_pairs_q2_chunk += n_pairs;
+                        n_pairs_q2 += n_pairs;
 
                         if (pos_set4_weights_end < set4_weights.size())
                         {
@@ -701,56 +744,100 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
                             std::push_heap(heap2.begin(), heap2.end(), max_cmp);
                         }
                     }
+                    chunks_q2_n_pairs.push_back(n_pairs_q2_chunk);
+                    chunks_q2_beg.push_back(same_score_q2.size());
                 }
             }
             profiler_inside_loop = std::make_unique<ScopedProfiler>("Combine scores              ");
 
-            print_info_line(gpu_data, i_iter_checking, profilerTotal->elapsed(), score_pair1, score_pair2, n_q1, n_q2);
+            print_info_line(gpu_data, i_iter_checking, profilerTotal->elapsed(), score_pair1, score_pair2, n_pairs_q1, n_pairs_q2);
 
             bool found = false;
             std::pair<size_t, size_t> solution;
+            size_t i_q1_chunk = 0;
+            size_t i_q2_chunk = 0;
 
             if (run_on_gpu)
             {
-                combine_and_encode_tuples_gpu(gpu_data, same_score_q1, same_score_q2, n_q1, n_q2);
-
                 profiler_inside_loop = std::make_unique<ScopedProfiler>("Evaluate solutions GPU      ");
-                const std::vector<size_t> hashes = find_equal_hashes(gpu_data);
+                const size_t n_q1_chunks = chunks_q1_n_pairs.size();
+                const size_t n_q2_chunks = chunks_q2_n_pairs.size();
+                size_t n_q1_pairs_offset = 0;
 
-                if (!hashes.empty())
+                assert(chunks_q1_beg.size() == n_q1_chunks + 1);
+                assert(chunks_q2_beg.size() == n_q2_chunks + 1);
+
+                for (i_q1_chunk = 0; i_q1_chunk < n_q1_chunks; ++i_q1_chunk)
                 {
-                    /* Retrieve the actual solution. We have to copy encode our arrays once more and look for the hash afterwards. */
-                    combine_and_encode_tuples_gpu(gpu_data, same_score_q1, same_score_q2, n_q1, n_q2);
+                    const size_t q1_chunk_beg = chunks_q1_beg[i_q1_chunk];
+                    const size_t n_pairs_q1_chunk = chunks_q1_n_pairs[i_q1_chunk];
+                    const size_t n_tuples_q1_chunk = chunks_q1_beg[i_q1_chunk + 1] - q1_chunk_beg;
+                    assert(q1_chunk_beg + n_tuples_q1_chunk <= same_score_q1.size());
 
-                    const std::vector<std::pair<size_t, size_t>> candidates = find_hash_positions_gpu(gpu_data, hashes, n_q1, n_q2);
+                    const PairsTuple *q1_chunk = same_score_q1.data() + q1_chunk_beg;
+                    size_t n_q2_pairs_offset = 0;
 
-                    /* Check all potential solutions. */
-                    for (const auto &solution_cand : candidates)
+                    for (i_q2_chunk = 0; i_q2_chunk < n_q2_chunks; ++i_q2_chunk)
                     {
-                        const bool feasible = verify_solution(solution_cand, same_score_q1, same_score_q2, set1_subsets, set2_subsets_sorted_asc, set3_subsets, set4_subsets_sorted_desc, subset_sum_1d, offsets, ms_inst);
+                        const size_t q2_chunk_beg = chunks_q2_beg[i_q2_chunk];
+                        const size_t n_pairs_q2_chunk = chunks_q2_n_pairs[i_q2_chunk];
+                        const size_t n_tuples_q2_chunk = chunks_q2_beg[i_q2_chunk + 1] - q2_chunk_beg;
+                        assert(q2_chunk_beg + n_tuples_q2_chunk <= same_score_q2.size());
 
-                        if (feasible)
+                        const PairsTuple *q2_chunk = same_score_q2.data() + q2_chunk_beg;
+
+                        combine_and_encode_tuples_gpu(gpu_data, q1_chunk, q2_chunk, n_tuples_q1_chunk, n_tuples_q2_chunk, n_pairs_q1_chunk, n_pairs_q2_chunk);
+
+                        const std::vector<size_t> hashes = find_equal_hashes(gpu_data);
+
+                        if (!hashes.empty())
                         {
-                            solution = solution_cand;
-                            found = true;
-                            break;
+                            /* Retrieve the actual solution. We have to copy encode our arrays once more and look for the hash afterwards. */
+                            combine_and_encode_tuples_gpu(gpu_data, q1_chunk, q2_chunk, n_tuples_q1_chunk, n_tuples_q2_chunk, n_pairs_q1_chunk, n_pairs_q2_chunk);
+
+                            const std::vector<std::pair<size_t, size_t>> candidates = find_hash_positions_gpu(gpu_data, hashes, n_pairs_q1_chunk, n_pairs_q2_chunk);
+
+                            /* Check all potential solutions. */
+                            for (const auto &solution_cand : candidates)
+                            {
+                                /* Offset each solution candidate by its chunk. */
+                                const auto feasible = verify_solution(solution_cand, q1_chunk, n_tuples_q1_chunk, q2_chunk, n_tuples_q2_chunk, set1_subsets, set2_subsets_sorted_asc, set3_subsets, set4_subsets_sorted_desc, subset_sum_1d, offsets, ms_inst);
+
+                                if (feasible)
+                                {
+                                    solution = solution_cand;
+                                    found = true;
+                                    break;
+                                }
+                            }
                         }
+                        if (found == true)
+                            break;
+
+                        n_q2_pairs_offset += n_pairs_q2_chunk;
                     }
+                    if (found == true)
+                        break;
+
+                    assert(n_q2_pairs_offset == n_pairs_q2);
+                    n_q1_pairs_offset += n_pairs_q1_chunk;
                 }
+                assert(found || n_q1_pairs_offset == n_pairs_q1);
+
                 profiler_inside_loop.reset();
             }
             else
             {
                 /* Precompute the partial scores. */
-                std::vector<size_t> buffered_scores_q1(ms_inst.m() * n_q1);
-                std::vector<size_t> buffered_scores_q2(ms_inst.m() * n_q2);
+                std::vector<size_t> buffered_scores_q1(ms_inst.m() * n_pairs_q1);
+                std::vector<size_t> buffered_scores_q2(ms_inst.m() * n_pairs_q2);
 
                 combine_scores_cpu(set1_scores, set2_scores_sorted_asc, ms_inst.m(), same_score_q1, buffered_scores_q1);
                 combine_scores_cpu(set3_scores, set4_scores_sorted_desc, ms_inst.m(), same_score_q2, buffered_scores_q2);
 
                 profiler_inside_loop = std::make_unique<ScopedProfiler>("Evaluate solutions CPU      ");
 
-                auto [done, solution_indices] = evaluate_solutions_cpu_hashing(ms_inst, buffered_scores_q1, buffered_scores_q2, n_q1, n_q2);
+                auto [done, solution_indices] = evaluate_solutions_cpu_hashing(ms_inst, buffered_scores_q1, buffered_scores_q2, n_pairs_q1, n_pairs_q2);
 
                 found = done;
                 solution = solution_indices;
@@ -762,14 +849,16 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
 
             /* Print and verify the solution! */
             /* Get the correct pairs. */
-            size_t pos_q1 = 0;
-            size_t pos_q2 = 0;
+            size_t pos_q1 = chunks_q1_beg[i_q1_chunk];
+            size_t pos_q2 = chunks_q2_beg[i_q2_chunk];
 
             while (solution.first >= same_score_q1[pos_q1].pairs_offset + same_score_q1[pos_q1].pairs_n_second)
                 ++pos_q1;
             while (solution.second >= same_score_q2[pos_q2].pairs_offset + same_score_q2[pos_q2].pairs_n_second)
                 ++pos_q2;
 
+            assert(pos_q1 < chunks_q1_beg[i_q1_chunk + 1]);
+            assert(pos_q2 < chunks_q2_beg[i_q2_chunk + 1]);
             assert(solution.first - same_score_q1[pos_q1].pairs_offset < same_score_q1[pos_q1].pairs_n_second);
             assert(solution.second - same_score_q2[pos_q2].pairs_offset < same_score_q2[pos_q2].pairs_n_second);
 
