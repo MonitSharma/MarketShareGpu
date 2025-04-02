@@ -306,9 +306,9 @@ std::vector<size_t> find_equal_hashes(GpuData &gpu_data, bool sort_required)
     return hashes;
 }
 
-std::vector<std::pair<size_t, size_t>> find_hash_positions_gpu(GpuData &gpu_data, const std::vector<size_t> &hashes, size_t n_p1, size_t n_p2)
+std::vector<std::pair<size_t, size_t>> find_hash_positions_gpu(GpuData &gpu_data, const std::vector<size_t> &hashes, size_t n_p1, size_t n_p2, bool encode_first_as_required)
 {
-    const bool encode_first_as_required = (n_p1 < n_p2);
+    encode_first_as_required = encode_first_as_required || (n_p1 < n_p2);
 
     std::vector<std::pair<size_t, size_t>> solution_candidates;
     solution_candidates.reserve(hashes.size());

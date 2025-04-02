@@ -836,7 +836,7 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
                                 combine_and_encode_tuples_required_gpu(gpu_data, q1_chunk, n_tuples_q1_chunk, n_pairs_q1_chunk, gpu_data.set1_scores, gpu_data.set2_scores);
                                 combine_and_encode_tuples_search_gpu(gpu_data, q2_chunk, n_tuples_q2_chunk, n_pairs_q2_chunk, gpu_data.set3_scores, gpu_data.set4_scores);
 
-                                const std::vector<std::pair<size_t, size_t>> candidates = find_hash_positions_gpu(gpu_data, hashes, n_pairs_q1_chunk, n_pairs_q2_chunk);
+                                const std::vector<std::pair<size_t, size_t>> candidates = find_hash_positions_gpu(gpu_data, hashes, n_pairs_q1_chunk, n_pairs_q2_chunk, true);
 
                                 /* Check all potential solutions. */
                                 for (const auto &solution_cand : candidates)
