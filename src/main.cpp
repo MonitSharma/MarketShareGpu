@@ -678,13 +678,10 @@ bool shroeppel_shamir_dim_reduced(const MarkShareFeas &ms_inst, bool run_on_gpu,
     size_t i_iter_checking = 0;
     while (!heap1.empty() && !heap2.empty())
     {
-        const auto pair1 = heap1.front();
-        const auto pair2 = heap2.front();
-
         /* score_pair1 is the currently lowest score in {set1_weights, set2_weights} we are still considering */
-        const T score_pair1 = set1_weights[pair1.first] + set2_weights_sorted_asc[pair1.second];
+        const T score_pair1 = set1_weights[heap1.front().first] + set2_weights_sorted_asc[heap1.front().second];
         /* score_pair2 is the currently highest score in {set3_weights, set4_weights} we are still considering */
-        const T score_pair2 = set3_weights[pair2.first] + set4_weights_sorted_desc[pair2.second];
+        const T score_pair2 = set3_weights[heap2.front().first] + set4_weights_sorted_desc[heap2.front().second];
 
         const T score = score_pair1 + score_pair2;
 
@@ -985,6 +982,7 @@ bool shroeppel_shamir_dim_reduced(const MarkShareFeas &ms_inst, bool run_on_gpu,
         }
         else if (score < subset_sum_1d_rhs)
         {
+            const auto pair1 = heap1.front();
             size_t pos_set2_weights = pair1.second;
 
             std::pop_heap(heap1.begin(), heap1.end(), min_cmp);
@@ -1004,6 +1002,7 @@ bool shroeppel_shamir_dim_reduced(const MarkShareFeas &ms_inst, bool run_on_gpu,
         }
         else if (score > subset_sum_1d_rhs)
         {
+            const auto pair2 = heap2.front();
             size_t pos_set4_weights = pair2.second;
 
             std::pop_heap(heap2.begin(), heap2.end(), max_cmp);
