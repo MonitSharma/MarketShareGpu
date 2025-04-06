@@ -25,6 +25,10 @@
 #include "cuda_kernels.cuh"
 #endif
 
+/* 3000000000 ~= 56 GB of active storage requirement. 4000000000 goes OOM on H200. 3500000000 works and goes up to 63.6 GB. 3900000000 also works and is about ~= 70.11 */
+constexpr size_t max_pairs_per_chunk = 3500000000;
+// constexpr size_t max_pairs_per_chunk = 400;
+
 typedef std::chrono::high_resolution_clock::time_point TimeVar;
 
 #define duration(a) std::chrono::duration_cast<std::chrono::nanoseconds>(a).count()
@@ -561,6 +565,54 @@ std::pair<size_t, T> max_encodable_dimension(size_t max_coeff, size_t n_cols)
     return {max_dim, basis};
 }
 
+template <bool ascending, typename T, typename F>
+void extract_pairs_from_heap(std::vector<PairsTuple>& pairs_same_score, std::vector<std::pair<size_t, size_t>> &heap, size_t score_pair, std::vector<size_t> &chunks_beg, std::vector<size_t> &chunks_n_pairs, size_t &n_pairs_chunk, size_t &n_pairs_total, const std::vector<T> &first_weights, const std::vector<T> &second_weights, const std::vector<T> &second_weights_sorted_asc, F&& min_cmp)
+{
+    /* For each element a in the heap with score(a) == score_pair, collect all solutions. */
+    while (!heap.empty() && first_weights[heap.front().first] + second_weights_sorted_asc[heap.front().second] == score_pair)
+    {
+        const auto pair1_same_score = heap.front();
+        std::pop_heap(heap.begin(), heap.end(), min_cmp);
+        heap.pop_back();
+
+        const size_t pos_second_weights_beg = pair1_same_score.second;
+        size_t pos_second_weights_end = pos_second_weights_beg;
+
+        /* Iterate the second elements. */
+        const auto pos2_val = second_weights_sorted_asc[pos_second_weights_end];
+
+        while (pos_second_weights_end < second_weights.size() && pos2_val == second_weights_sorted_asc[pos_second_weights_end])
+            ++pos_second_weights_end;
+
+        size_t n_pairs = pos_second_weights_end - pos_second_weights_beg;
+        assert(n_pairs <= max_pairs_per_chunk);
+
+        if (n_pairs + n_pairs_chunk >= max_pairs_per_chunk)
+        {
+            chunks_beg.push_back(pairs_same_score.size());
+            chunks_n_pairs.push_back(n_pairs_chunk);
+            n_pairs_chunk = 0;
+        }
+
+        pairs_same_score.emplace_back(pair1_same_score.first, pos_second_weights_beg, n_pairs, n_pairs_chunk);
+        n_pairs_chunk += n_pairs;
+        n_pairs_total += n_pairs;
+
+        if (pos_second_weights_end < second_weights.size())
+        {
+            if (ascending)
+                assert(score_pair1 < first_weights[pair1_same_score.first] + second_weights_sorted_asc[pos_second_weights_end]);
+            else
+                assert(score_pair1 > first_weights[pair1_same_score.first] + second_weights_sorted_asc[pos_second_weights_end]);
+
+            heap.emplace_back(pair1_same_score.first, pos_second_weights_end);
+            std::push_heap(heap.begin(), heap.end(), min_cmp);
+        }
+    }
+    chunks_n_pairs.push_back(n_pairs_chunk);
+    chunks_beg.push_back(pairs_same_score.size());
+}
+
 template <typename T>
 bool shroeppel_shamir_dim_reduced(const MarkShareFeas &ms_inst, bool run_on_gpu, const std::string &instance_name, size_t n_reduce_max)
 {
@@ -687,9 +739,6 @@ bool shroeppel_shamir_dim_reduced(const MarkShareFeas &ms_inst, bool run_on_gpu,
 
         if (score == subset_sum_1d_rhs)
         {
-            /* 3000000000 ~= 56 GB of active storage requirement. 4000000000 goes OOM on H200. 3500000000 works and goes up to 63.6 GB. 3900000000 also works and is about ~= 70.11 */
-            constexpr size_t max_pairs_per_chunk = 3500000000;
-            // constexpr size_t max_pairs_per_chunk = 400;
             std::vector<size_t> chunks_q1_n_pairs;
             std::vector<size_t> chunks_q1_beg;
             std::vector<size_t> chunks_q2_n_pairs;
@@ -714,87 +763,11 @@ bool shroeppel_shamir_dim_reduced(const MarkShareFeas &ms_inst, bool run_on_gpu,
             {
 #pragma omp section
                 {
-                    /* For each element a in q1 with score(a) == score_pair1, collect all solutions. */
-                    while (!heap1.empty() && set1_weights[heap1.front().first] + set2_weights_sorted_asc[heap1.front().second] == score_pair1)
-                    {
-                        const auto pair1_same_score = heap1.front();
-                        std::pop_heap(heap1.begin(), heap1.end(), min_cmp);
-                        heap1.pop_back();
-
-                        const size_t pos_set2_weights_beg = pair1_same_score.second;
-                        size_t pos_set2_weights_end = pos_set2_weights_beg;
-
-                        /* Iterate the second elements. */
-                        const auto pos2_val = set2_weights_sorted_asc[pos_set2_weights_end];
-
-                        while (pos_set2_weights_end < set2_weights.size() && pos2_val == set2_weights_sorted_asc[pos_set2_weights_end])
-                            ++pos_set2_weights_end;
-
-                        size_t n_pairs = pos_set2_weights_end - pos_set2_weights_beg;
-                        assert(n_pairs <= max_pairs_per_chunk);
-
-                        if (n_pairs + n_pairs_q1_chunk >= max_pairs_per_chunk)
-                        {
-                            chunks_q1_beg.push_back(same_score_q1.size());
-                            chunks_q1_n_pairs.push_back(n_pairs_q1_chunk);
-                            n_pairs_q1_chunk = 0;
-                        }
-
-                        same_score_q1.emplace_back(pair1_same_score.first, pos_set2_weights_beg, n_pairs, n_pairs_q1_chunk);
-                        n_pairs_q1_chunk += n_pairs;
-                        n_pairs_q1 += n_pairs;
-
-                        if (pos_set2_weights_end < set2_weights.size())
-                        {
-                            assert(score_pair1 < set1_weights[pair1_same_score.first] + set2_weights_sorted_asc[pos_set2_weights_end]);
-                            heap1.emplace_back(pair1_same_score.first, pos_set2_weights_end);
-                            std::push_heap(heap1.begin(), heap1.end(), min_cmp);
-                        }
-                    }
-                    chunks_q1_n_pairs.push_back(n_pairs_q1_chunk);
-                    chunks_q1_beg.push_back(same_score_q1.size());
+                    extract_pairs_from_heap<true, T>(same_score_q1, heap1, score_pair1, chunks_q1_beg, chunks_q1_n_pairs, n_pairs_q1_chunk, n_pairs_q1, set1_weights, set2_weights, set2_weights_sorted_asc, min_cmp);
                 }
 #pragma omp section
                 {
-                    /* For each element a in q2 with score(a) == score_pair2, collect all solutions. */
-                    while (!heap2.empty() && set3_weights[heap2.front().first] + set4_weights_sorted_desc[heap2.front().second] == score_pair2)
-                    {
-                        const auto pair2_same_score = heap2.front();
-                        std::pop_heap(heap2.begin(), heap2.end(), max_cmp);
-                        heap2.pop_back();
-
-                        const size_t pos_set4_weights_beg = pair2_same_score.second;
-                        size_t pos_set4_weights_end = pos_set4_weights_beg;
-
-                        /* Iterate the second elements. */
-                        const auto pos4_val = set4_weights_sorted_desc[pos_set4_weights_end];
-
-                        while (pos_set4_weights_end < set4_weights.size() && pos4_val == set4_weights_sorted_desc[pos_set4_weights_end])
-                            ++pos_set4_weights_end;
-
-                        const size_t n_pairs = pos_set4_weights_end - pos_set4_weights_beg;
-                        assert(n_pairs <= max_pairs_per_chunk);
-
-                        if (n_pairs + n_pairs_q2_chunk >= max_pairs_per_chunk)
-                        {
-                            chunks_q2_beg.push_back(same_score_q2.size());
-                            chunks_q2_n_pairs.push_back(n_pairs_q2_chunk);
-                            n_pairs_q2_chunk = 0;
-                        }
-
-                        same_score_q2.emplace_back(pair2_same_score.first, pos_set4_weights_beg, n_pairs, n_pairs_q2_chunk);
-                        n_pairs_q2_chunk += n_pairs;
-                        n_pairs_q2 += n_pairs;
-
-                        if (pos_set4_weights_end < set4_weights.size())
-                        {
-                            assert(score_pair2 > set3_weights[pair2_same_score.first] + set4_weights_sorted_desc[pos_set4_weights_end]);
-                            heap2.emplace_back(pair2_same_score.first, pos_set4_weights_end);
-                            std::push_heap(heap2.begin(), heap2.end(), max_cmp);
-                        }
-                    }
-                    chunks_q2_n_pairs.push_back(n_pairs_q2_chunk);
-                    chunks_q2_beg.push_back(same_score_q2.size());
+                    extract_pairs_from_heap<false, T>(same_score_q2, heap2, score_pair2, chunks_q2_beg, chunks_q2_n_pairs, n_pairs_q2_chunk, n_pairs_q2, set3_weights, set4_weights, set4_weights_sorted_desc, max_cmp);
                 }
             }
             profiler_inside_loop = std::make_unique<ScopedProfiler>("Combine scores              ");
