@@ -69,6 +69,6 @@ void sort_required_gpu(GpuData &gpu_data);
 std::vector<size_t> find_equal_hashes(GpuData &gpu_data, bool sort_required = true);
 std::vector<std::pair<size_t, size_t>> find_hash_positions_gpu(GpuData &gpu_data, const std::vector<size_t>& hashes, size_t n_p1, size_t n_p2, bool encode_first_as_required = false);
 
-void combine_and_encode_tuples_required_gpu(GpuData &gpu_data, const PairsTuple *tuples, size_t n_tuples, size_t n_pairs, const size_t *scores1, const size_t *scores2);
-void combine_and_encode_tuples_search_gpu(GpuData &gpu_data, const PairsTuple *tuples, size_t n_tuples, size_t n_pairs, const size_t *scores1, const size_t *scores2);
-void combine_and_encode_tuples_gpu(GpuData &gpu_data, const PairsTuple* tuples1, const PairsTuple* tuples2, size_t n_tuples1, size_t n_tuples2, size_t n_pairs1, size_t n_pairs2);
+void combine_and_encode_tuples_required_gpu(GpuData &gpu_data, const PairsTuple *tuples, size_t n_tuples, size_t n_pairs, const size_t *scores1, const size_t *scores2, size_t row_offset);
+void combine_and_encode_tuples_search_gpu(GpuData &gpu_data, const PairsTuple *tuples, size_t n_tuples, size_t n_pairs, const size_t *scores1, const size_t *scores2, size_t row_offset);
+void combine_and_encode_tuples_gpu(GpuData &gpu_data, const PairsTuple* tuples1, const PairsTuple* tuples2, size_t n_tuples1, size_t n_tuples2, size_t n_pairs1, size_t n_pairs2, size_t row_offset);

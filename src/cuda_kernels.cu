@@ -164,9 +164,10 @@ __device__ size_t custom_hash(size_t x)
 
 /* Converts tuples into pairs. */
 template <bool ENCODE_REQUIRED>
-__global__ void flatten_and_encode_tuples(const size_t *tuples, size_t n_tuples, const size_t *__restrict__ scores1, const size_t *__restrict__ scores2, const size_t *__restrict__ rhs, size_t *__restrict__ hashes, size_t m_rows)
+__global__ void flatten_and_encode_tuples(const size_t *tuples, size_t n_tuples, const size_t *__restrict__ scores1, const size_t *__restrict__ scores2, const size_t *__restrict__ rhs, size_t *__restrict__ hashes, size_t m_rows, size_t row_offset)
 {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const size_t m_rows_left = m_rows - row_offset;
 
     if (idx >= n_tuples)
         return;
@@ -182,13 +183,13 @@ __global__ void flatten_and_encode_tuples(const size_t *tuples, size_t n_tuples,
         size_t key = 0;
 
         /* Compute the hash of this tuple. */
-        for (size_t i_row = 0; i_row < m_rows; ++i_row)
+        for (size_t i_row = 0; i_row < m_rows_left; ++i_row)
         {
             /* Compute the pair's score of this row and add it (encoded) to key. */
-            size_t row_score = scores1[first * m_rows + i_row] + scores2[second * m_rows + i_row];
+            size_t row_score = scores1[first * m_rows_left + i_row] + scores2[second * m_rows_left + i_row];
 
             if (ENCODE_REQUIRED)
-                row_score = rhs[i_row] - row_score;
+                row_score = rhs[i_row + row_offset] - row_score;
 
             key ^= custom_hash(row_score) + 0x9e3779b9 + (key << 6) + (key >> 2);
         }
@@ -198,7 +199,7 @@ __global__ void flatten_and_encode_tuples(const size_t *tuples, size_t n_tuples,
     }
 }
 
-void combine_and_encode_tuples_required_gpu(GpuData &gpu_data, const PairsTuple *tuples, size_t n_tuples, size_t n_pairs, const size_t *scores1, const size_t *scores2)
+void combine_and_encode_tuples_required_gpu(GpuData &gpu_data, const PairsTuple *tuples, size_t n_tuples, size_t n_pairs, const size_t *scores1, const size_t *scores2, size_t row_offset)
 {
     const size_t m_rows = gpu_data.m_rows;
     /* Each tuple is treated by one warp. */
@@ -213,10 +214,10 @@ void combine_and_encode_tuples_required_gpu(GpuData &gpu_data, const PairsTuple 
     gpu_data.copy_tuples(tuples, n_tuples);
     int n_blocks = (n_tuples + n_threads - 1) / n_threads;
     assert(n_blocks > 0);
-    flatten_and_encode_tuples<true><<<n_blocks, n_threads>>>(gpu_data.tuples_buffer, n_tuples, scores1, scores2, gpu_data.rhs, gpu_data.required_buffer, m_rows);
+    flatten_and_encode_tuples<true><<<n_blocks, n_threads>>>(gpu_data.tuples_buffer, n_tuples, scores1, scores2, gpu_data.rhs, gpu_data.required_buffer, m_rows, row_offset);
 }
 
-void combine_and_encode_tuples_search_gpu(GpuData &gpu_data, const PairsTuple *tuples, size_t n_tuples, size_t n_pairs, const size_t *scores1, const size_t *scores2)
+void combine_and_encode_tuples_search_gpu(GpuData &gpu_data, const PairsTuple *tuples, size_t n_tuples, size_t n_pairs, const size_t *scores1, const size_t *scores2, size_t row_offset)
 {
     const int n_threads = 256;
     /* Each tuple is treated by one warp. */
@@ -231,10 +232,10 @@ void combine_and_encode_tuples_search_gpu(GpuData &gpu_data, const PairsTuple *t
     gpu_data.copy_tuples(tuples, n_tuples);
     int n_blocks = (n_tuples + n_threads - 1) / n_threads;
     assert(n_blocks > 0);
-    flatten_and_encode_tuples<false><<<n_blocks, n_threads>>>(gpu_data.tuples_buffer, n_tuples, scores1, scores2, gpu_data.rhs, gpu_data.search_buffer, m_rows);
+    flatten_and_encode_tuples<false><<<n_blocks, n_threads>>>(gpu_data.tuples_buffer, n_tuples, scores1, scores2, gpu_data.rhs, gpu_data.search_buffer, m_rows, row_offset);
 }
 
-void combine_and_encode_tuples_gpu(GpuData &gpu_data, const PairsTuple *tuples1, const PairsTuple *tuples2, size_t n_tuples1, size_t n_tuples2, size_t n_pairs1, size_t n_pairs2)
+void combine_and_encode_tuples_gpu(GpuData &gpu_data, const PairsTuple *tuples1, const PairsTuple *tuples2, size_t n_tuples1, size_t n_tuples2, size_t n_pairs1, size_t n_pairs2, size_t row_offset)
 {
     auto profiler = std::make_unique<ScopedProfiler>("Eval GPU: combine + encode  ");
 
@@ -243,13 +244,13 @@ void combine_and_encode_tuples_gpu(GpuData &gpu_data, const PairsTuple *tuples1,
 
     if (encode_first_as_required)
     {
-        combine_and_encode_tuples_required_gpu(gpu_data, tuples1, n_tuples1, n_pairs1, gpu_data.set1_scores, gpu_data.set2_scores);
-        combine_and_encode_tuples_search_gpu(gpu_data, tuples2, n_tuples2, n_pairs2, gpu_data.set3_scores, gpu_data.set4_scores);
+        combine_and_encode_tuples_required_gpu(gpu_data, tuples1, n_tuples1, n_pairs1, gpu_data.set1_scores, gpu_data.set2_scores, row_offset);
+        combine_and_encode_tuples_search_gpu(gpu_data, tuples2, n_tuples2, n_pairs2, gpu_data.set3_scores, gpu_data.set4_scores, row_offset);
     }
     else
     {
-        combine_and_encode_tuples_required_gpu(gpu_data, tuples2, n_tuples2, n_pairs2, gpu_data.set3_scores, gpu_data.set4_scores);
-        combine_and_encode_tuples_search_gpu(gpu_data, tuples1, n_tuples1, n_pairs1, gpu_data.set1_scores, gpu_data.set2_scores);
+        combine_and_encode_tuples_required_gpu(gpu_data, tuples2, n_tuples2, n_pairs2, gpu_data.set3_scores, gpu_data.set4_scores, row_offset);
+        combine_and_encode_tuples_search_gpu(gpu_data, tuples1, n_tuples1, n_pairs1, gpu_data.set1_scores, gpu_data.set2_scores, row_offset);
     }
 
     profiler.reset();
@@ -257,11 +258,15 @@ void combine_and_encode_tuples_gpu(GpuData &gpu_data, const PairsTuple *tuples1,
 
 void sort_required_gpu(GpuData &gpu_data)
 {
+    auto profiler = std::make_unique<ScopedProfiler>("Eval GPU: sort required     ");
+
     const size_t n_required = gpu_data.n_required;
     size_t *required = gpu_data.required_buffer;
 
     /* Sort the array of required keys. */
     thrust::sort(thrust::device, required, required + n_required);
+
+    profiler.reset();
 }
 
 std::vector<size_t> find_equal_hashes(GpuData &gpu_data, bool sort_required)

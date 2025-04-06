@@ -13,6 +13,7 @@
 #include <fstream>
 #include <iostream>
 #include <numeric>
+#include <limits>
 #include <queue>
 #include <utility>
 #include <string>
@@ -102,18 +103,19 @@ std::vector<T> apply_permutation(
     return sorted_vec;
 }
 
-std::pair<std::vector<size_t>, std::vector<std::vector<size_t>>> generate_subsets(const std::vector<size_t> &weights)
+template <typename T>
+std::pair<std::vector<T>, std::vector<std::vector<size_t>>> generate_subsets(const std::vector<T> &weights)
 {
     size_t n = weights.size();
     size_t total_subsets = 1ULL << n; /* Total subsets is 2^n. */
 
-    printf("Generating %ld possible subsets.\n", total_subsets);
-    std::vector<size_t> set_weights(total_subsets, 0);
+    printf("Generating %ld possible subsets for as set of size %ld.\n", total_subsets, n);
+    std::vector<T> set_weights(total_subsets, 0);
     std::vector<std::vector<size_t>> sets(total_subsets);
 
     for (size_t pass = 0; pass < n; ++pass)
     {
-        const size_t weight = weights[pass];
+        const T weight = weights[pass];
         /* Step size corresponds to 2^pass (position of the bit). */
         size_t step = 1ULL << pass;
 
@@ -133,7 +135,8 @@ std::pair<std::vector<size_t>, std::vector<std::vector<size_t>>> generate_subset
 }
 
 // Function to sort an array and obtain sorted indices
-std::vector<size_t> sort_indices(const std::vector<size_t> &arr, bool ascending)
+template <typename T>
+std::vector<size_t> sort_indices(const std::vector<T> &arr, bool ascending)
 {
     size_t n = arr.size();
 
@@ -433,12 +436,15 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_cpu_hashing(const 
     return {done, solution_indices};
 }
 
-void compute_scores_cpu(const MarkShareFeas &ms_inst, std::vector<size_t> &scores, const std::vector<std::vector<size_t>> &subsets, size_t offset)
+void compute_scores_cpu(const MarkShareFeas &ms_inst, std::vector<size_t> &scores, const std::vector<std::vector<size_t>> &subsets, size_t col_offset, size_t row_offset)
 {
+    const size_t m_rows_left = ms_inst.m() - row_offset;
+    assert(ms_inst.m() >= row_offset);
+
 #pragma omp parallel for
     for (size_t i = 0; i < subsets.size(); ++i)
     {
-        ms_inst.compute_value(subsets[i], offset, scores.data() + i * ms_inst.m());
+        ms_inst.compute_value(subsets[i], col_offset, row_offset, scores.data() + i * m_rows_left);
     }
 }
 
@@ -477,7 +483,7 @@ void print_info_line(const GpuData &gpu_data, size_t i_iter, double time, size_t
     if (print)
     {
         const double n_gb = gpu_data.get_gb_allocated();
-        printf("%5ld %8.2fs [%.6f GB]: %6ld + %6ld; %ld x %ld = %lld possible solutions\n", i_iter, time, n_gb, score1, score2, n_q1, n_q2, (long long)n_q1 * n_q2);
+        printf("%5ld %8.2fs [%.6f GB]: %6ld + %6ld; %ld x %ld possible solutions\n", i_iter, time, n_gb, score1, score2, n_q1, n_q2);
     }
 }
 
@@ -487,8 +493,8 @@ bool verify_solution(const std::pair<size_t, size_t> &solution, const PairsTuple
     /* Get the correct pairs. */
     size_t pos_q1 = 0;
     size_t pos_q2 = 0;
-    (void) n_tuples_q1;
-    (void) n_tuples_q2;
+    (void)n_tuples_q1;
+    (void)n_tuples_q2;
 
     while (solution.first >= same_score_q1[pos_q1].pairs_offset + same_score_q1[pos_q1].pairs_n_second)
     {
@@ -526,29 +532,76 @@ bool verify_solution(const std::pair<size_t, size_t> &solution, const PairsTuple
     return true;
 }
 
-bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subset_sum_1d, const MarkShareFeas &ms_inst, bool run_on_gpu, const std::string &instance_name)
+template <typename T>
+std::pair<size_t, T> max_encodable_dimension(size_t max_coeff, size_t n_cols)
 {
+    constexpr T max_index = std::numeric_limits<T>::max();
+
+    static_assert(std::numeric_limits<T>::max() >= std::numeric_limits<size_t>::max());
+    assert(max_coeff > 1);
+
+    /* TODO: we need to properly check for an overflow here. */
+    const T basis = static_cast<T>(n_cols) * static_cast<T>(max_coeff) + 1;
+
+    /* Given a vector (x1, x2, .. ) we reduce dimensions as x1 * max_sum^0 + x2 * max_sum^1 + x3 * max_sum^2 ...
+     * When encoding into T we need to guarantee that the highest dimension, d, still fits into our index type. Define the basis B as
+     *   B := (max_sum + 1)
+     * Then
+     *   sum_0^d-1 (B - 1) (max_sum + 1)^k <= max_index
+     * <=> geometric sum
+     *   (B - 1) [B^d - 1] / [B - 1] = (B - 1) * [B^d - 1] / (B - 1) <= max_index
+     * <=>
+     *   B^d <= max_index + 1
+     * <=>
+     *   d_max = |_ log_(max_sum + 1) (max_index + 1) _|
+     */
+    size_t max_dim = static_cast<size_t>(std::floor(std::log(max_index) / std::log(basis)));
+
+    printf("Max reducible dimension is %ld (encoded with basis %ld)\n", max_dim, static_cast<size_t>(basis));
+    return {max_dim, basis};
+}
+
+template <typename T>
+bool shroeppel_shamir_dim_reduced(const MarkShareFeas &ms_inst, bool run_on_gpu, const std::string &instance_name, size_t n_reduce_max)
+{
+    std::cout << "Running reduced dim shroeppel shamir" << std::endl;
+    std::cout << "Running with " << omp_get_max_threads() << " threads" << std::endl;
+
+    /* First, attempt some dimensionality reduction/perfect hashing.
+     * We know that 0 <= A[i][j] <= 200 and thus sum_j A[i][j] <= n * 200.
+     *
+     * So, reserving n * 200 + 1 intervals for each of the entries i of a vector A.j we have a overlap free combination.
+     * The amount of dimension we can remove this way is limited by the maximum value of T, the index type we are using for the 1-dimensional subset sum problem.
+     */
+    constexpr size_t max_coeff = 200;
+    const size_t n_cols = ms_inst.n();
+
+    const auto [max_reduce_dim, basis] = max_encodable_dimension<T>(max_coeff, n_cols);
+    const size_t reduce_dim = std::max(size_t(1), std::min(std::min(ms_inst.m(), max_reduce_dim), n_reduce_max));
+    const size_t leftover_dim = ms_inst.m() - reduce_dim;
+
+    printf("Reducing %ld dimensions for Shroeppel-Shamir - leaving %ld for verification\n", reduce_dim, leftover_dim);
+
+    const auto [subset_sum_1d, subset_sum_1d_rhs] = ms_inst.reduce_first_dimensions(reduce_dim, basis);
+
     const size_t split_index1 = subset_sum_1d.size() / 4;
     const size_t split_index2 = subset_sum_1d.size() / 2;
     const size_t split_index3 = 3 * subset_sum_1d.size() / 4;
     printf("Splitting sets into [0, %ld]; [%ld, %ld]; [%ld, %ld]; [%ld, %ld]\n", split_index1 - 1, split_index1, split_index2 - 1, split_index2, split_index3 - 1, split_index3, subset_sum_1d.size());
 
-    std::cout << "Running with " << omp_get_max_threads() << " threads" << std::endl;
     auto profiler = std::make_unique<ScopedProfiler>("Setup time                  ");
     auto profilerTotal = std::make_unique<ScopedProfiler>("Solution time               ");
 
-    /* Get 4 sublists. */
-    std::vector<size_t> list1(subset_sum_1d.begin(), subset_sum_1d.begin() + split_index1);
-    std::vector<size_t> list2(subset_sum_1d.begin() + split_index1, subset_sum_1d.begin() + split_index2);
-    std::vector<size_t> list3(subset_sum_1d.begin() + split_index2, subset_sum_1d.begin() + split_index3);
-    std::vector<size_t> list4(subset_sum_1d.begin() + split_index3, subset_sum_1d.end());
+    std::vector<T> list1(subset_sum_1d.begin(), subset_sum_1d.begin() + split_index1);
+    std::vector<T> list2(subset_sum_1d.begin() + split_index1, subset_sum_1d.begin() + split_index2);
+    std::vector<T> list3(subset_sum_1d.begin() + split_index2, subset_sum_1d.begin() + split_index3);
+    std::vector<T> list4(subset_sum_1d.begin() + split_index3, subset_sum_1d.end());
     assert(list1.size() + list2.size() + list3.size() + list4.size() == subset_sum_1d.size());
 
     const std::vector<size_t> offsets = {0, list1.size(), list1.size() + list2.size(), list1.size() + list2.size() + list3.size()};
     const std::vector<size_t> offsetsQ1 = {0, list1.size()};
     const std::vector<size_t> offsetsQ2 = {list1.size() + list2.size(), list1.size() + list2.size() + list3.size()};
 
-    // TODO: generate subsets and extract sets can possibly be combined.
     auto [set1_weights, set1_subsets] = generate_subsets(list1);
     auto [set2_weights, set2_subsets] = generate_subsets(list2);
     auto [set3_weights, set3_subsets] = generate_subsets(list3);
@@ -564,15 +617,15 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
     const auto set4_weights_sorted_desc = apply_permutation(set4_weights, desc_indices_set4_weights);
     const auto set4_subsets_sorted_desc = apply_permutation(set4_subsets, desc_indices_set4_weights);
 
-    std::vector<size_t> set1_scores(set1_subsets.size() * ms_inst.m());
-    std::vector<size_t> set2_scores_sorted_asc(set2_subsets.size() * ms_inst.m());
-    std::vector<size_t> set3_scores(set3_subsets.size() * ms_inst.m());
-    std::vector<size_t> set4_scores_sorted_desc(set4_subsets.size() * ms_inst.m());
+    std::vector<size_t> set1_scores(set1_subsets.size() * leftover_dim);
+    std::vector<size_t> set2_scores_sorted_asc(set2_subsets.size() * leftover_dim);
+    std::vector<size_t> set3_scores(set3_subsets.size() * leftover_dim);
+    std::vector<size_t> set4_scores_sorted_desc(set4_subsets.size() * leftover_dim);
 
-    compute_scores_cpu(ms_inst, set1_scores, set1_subsets, offsets[0]);
-    compute_scores_cpu(ms_inst, set2_scores_sorted_asc, set2_subsets_sorted_asc, offsets[1]);
-    compute_scores_cpu(ms_inst, set3_scores, set3_subsets, offsets[2]);
-    compute_scores_cpu(ms_inst, set4_scores_sorted_desc, set4_subsets_sorted_desc, offsets[3]);
+    compute_scores_cpu(ms_inst, set1_scores, set1_subsets, offsets[0], reduce_dim);
+    compute_scores_cpu(ms_inst, set2_scores_sorted_asc, set2_subsets_sorted_asc, offsets[1], reduce_dim);
+    compute_scores_cpu(ms_inst, set3_scores, set3_subsets, offsets[2], reduce_dim);
+    compute_scores_cpu(ms_inst, set4_scores_sorted_desc, set4_subsets_sorted_desc, offsets[3], reduce_dim);
 
     GpuData gpu_data(ms_inst, set1_scores, set2_scores_sorted_asc, set3_scores, set4_scores_sorted_desc);
 
@@ -581,12 +634,12 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
 
     /* Compare returns true if the first argument comes BEFORE the second argument. Since however the priority queue outputs the largest element first,
      * we have to flip the > signs. */
-    auto min_cmp = [&](std::pair<size_t, size_t> a1, std::pair<size_t, size_t> a2) -> bool
+    auto min_cmp = [&](std::pair<T, T> a1, std::pair<T, T> a2) -> bool
     {
         return set1_weights[a1.first] + set2_weights_sorted_asc[a1.second] > set1_weights[a2.first] + set2_weights_sorted_asc[a2.second];
     };
 
-    auto max_cmp = [&](std::pair<size_t, size_t> a1, std::pair<size_t, size_t> a2) -> bool
+    auto max_cmp = [&](std::pair<T, T> a1, std::pair<T, T> a2) -> bool
     {
         return set3_weights[a1.first] + set4_weights_sorted_desc[a1.second] < set3_weights[a2.first] + set4_weights_sorted_desc[a2.second];
     };
@@ -603,15 +656,12 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
     std::vector<std::pair<size_t, size_t>> heap2;
     heap2.reserve(set3_weights.size());
 
-    // std::priority_queue<std::pair<size_t, size_t>, std::vector<std::pair<size_t, size_t>>, decltype(min_cmp)> q1(min_cmp);
-    // std::priority_queue<std::pair<size_t, size_t>, std::vector<std::pair<size_t, size_t>>, decltype(max_cmp)> q2(max_cmp);
     // TODO: the initial insert can likely be improved by simple sorting.
-
     for (size_t i = 0; i < set1_weights.size(); ++i)
     {
         /* If already the sum of these 2 elements is greater than the right hand side we can skip them. Subsequent combinations (e.g. with higher pos_subset2)
          * will only be even larger. */
-        if (set1_weights[i] + set2_weights_sorted_asc[0] <= rhs_subset_sum_1d)
+        if (set1_weights[i] + set2_weights_sorted_asc[0] <= subset_sum_1d_rhs)
             heap1.emplace_back(i, 0);
     }
 
@@ -632,16 +682,16 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
         const auto pair2 = heap2.front();
 
         /* score_pair1 is the currently lowest score in {set1_weights, set2_weights} we are still considering */
-        const size_t score_pair1 = set1_weights[pair1.first] + set2_weights_sorted_asc[pair1.second];
+        const T score_pair1 = set1_weights[pair1.first] + set2_weights_sorted_asc[pair1.second];
         /* score_pair2 is the currently highest score in {set3_weights, set4_weights} we are still considering */
-        const size_t score_pair2 = set3_weights[pair2.first] + set4_weights_sorted_desc[pair2.second];
+        const T score_pair2 = set3_weights[pair2.first] + set4_weights_sorted_desc[pair2.second];
 
-        const size_t score = score_pair1 + score_pair2;
+        const T score = score_pair1 + score_pair2;
 
-        if (score == rhs_subset_sum_1d)
+        if (score == subset_sum_1d_rhs)
         {
             /* 3000000000 ~= 56 GB of active storage requirement. 4000000000 goes OOM on H200. 3500000000 works and goes up to 63.6 GB. 3900000000 also works and is about ~= 70.11 */
-            constexpr size_t max_pairs_per_chunk = 3900000000;
+            constexpr size_t max_pairs_per_chunk = 3500000000;
             // constexpr size_t max_pairs_per_chunk = 400;
             std::vector<size_t> chunks_q1_n_pairs;
             std::vector<size_t> chunks_q1_beg;
@@ -663,11 +713,11 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
 
             auto profiler_inside_loop = std::make_unique<ScopedProfiler>("Candidate extraction        ");
 
-            /* For each element a in q1 with score(a) == score_pair1, collect all solutions. */
 #pragma omp parallel sections num_threads(2)
             {
 #pragma omp section
                 {
+                    /* For each element a in q1 with score(a) == score_pair1, collect all solutions. */
                     while (!heap1.empty() && set1_weights[heap1.front().first] + set2_weights_sorted_asc[heap1.front().second] == score_pair1)
                     {
                         const auto pair1_same_score = heap1.front();
@@ -773,14 +823,14 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
                 if (n_q1_chunks == 1 && n_q2_chunks == 1)
                 {
                     /* Everything fits on GPU directly. */
-                    combine_and_encode_tuples_gpu(gpu_data, same_score_q1.data(), same_score_q2.data(), same_score_q1.size(), same_score_q2.size(), n_pairs_q1, n_pairs_q2);
+                    combine_and_encode_tuples_gpu(gpu_data, same_score_q1.data(), same_score_q2.data(), same_score_q1.size(), same_score_q2.size(), n_pairs_q1, n_pairs_q2, reduce_dim);
 
                     const std::vector<size_t> hashes = find_equal_hashes(gpu_data);
 
                     if (!hashes.empty())
                     {
                         /* Retrieve the actual solution. We have to copy encode our arrays once more and look for the hash afterwards. */
-                        combine_and_encode_tuples_gpu(gpu_data, same_score_q1.data(), same_score_q2.data(), same_score_q1.size(), same_score_q2.size(), n_pairs_q1, n_pairs_q2);
+                        combine_and_encode_tuples_gpu(gpu_data, same_score_q1.data(), same_score_q2.data(), same_score_q1.size(), same_score_q2.size(), n_pairs_q1, n_pairs_q2, reduce_dim);
 
                         const std::vector<std::pair<size_t, size_t>> candidates = find_hash_positions_gpu(gpu_data, hashes, n_pairs_q1, n_pairs_q2);
 
@@ -814,7 +864,7 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
                         const PairsTuple *q1_chunk = same_score_q1.data() + q1_chunk_beg;
                         size_t n_q2_pairs_offset = 0;
 
-                        combine_and_encode_tuples_required_gpu(gpu_data, q1_chunk, n_tuples_q1_chunk, n_pairs_q1_chunk, gpu_data.set1_scores, gpu_data.set2_scores);
+                        combine_and_encode_tuples_required_gpu(gpu_data, q1_chunk, n_tuples_q1_chunk, n_pairs_q1_chunk, gpu_data.set1_scores, gpu_data.set2_scores, reduce_dim);
                         sort_required_gpu(gpu_data);
 
                         for (i_q2_chunk = 0; i_q2_chunk < n_q2_chunks; ++i_q2_chunk)
@@ -826,15 +876,15 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
 
                             const PairsTuple *q2_chunk = same_score_q2.data() + q2_chunk_beg;
 
-                            combine_and_encode_tuples_search_gpu(gpu_data, q2_chunk, n_tuples_q2_chunk, n_pairs_q2_chunk, gpu_data.set3_scores, gpu_data.set4_scores);
+                            combine_and_encode_tuples_search_gpu(gpu_data, q2_chunk, n_tuples_q2_chunk, n_pairs_q2_chunk, gpu_data.set3_scores, gpu_data.set4_scores, reduce_dim);
 
                             const std::vector<size_t> hashes = find_equal_hashes(gpu_data, false);
 
                             if (!hashes.empty())
                             {
                                 /* Retrieve the actual solution. We have to copy encode our arrays once more and look for the hash afterwards. */
-                                combine_and_encode_tuples_required_gpu(gpu_data, q1_chunk, n_tuples_q1_chunk, n_pairs_q1_chunk, gpu_data.set1_scores, gpu_data.set2_scores);
-                                combine_and_encode_tuples_search_gpu(gpu_data, q2_chunk, n_tuples_q2_chunk, n_pairs_q2_chunk, gpu_data.set3_scores, gpu_data.set4_scores);
+                                combine_and_encode_tuples_required_gpu(gpu_data, q1_chunk, n_tuples_q1_chunk, n_pairs_q1_chunk, gpu_data.set1_scores, gpu_data.set2_scores, reduce_dim);
+                                combine_and_encode_tuples_search_gpu(gpu_data, q2_chunk, n_tuples_q2_chunk, n_pairs_q2_chunk, gpu_data.set3_scores, gpu_data.set4_scores, reduce_dim);
 
                                 const std::vector<std::pair<size_t, size_t>> candidates = find_hash_positions_gpu(gpu_data, hashes, n_pairs_q1_chunk, n_pairs_q2_chunk, true);
 
@@ -912,7 +962,7 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
 
             std::vector<size_t> solution_1d(subset_sum_1d.size());
 
-            assert(set1_weights[pair_q1.first] + set2_weights_sorted_asc[pair_q1.second] + set3_weights[pair_q2.first] + set4_weights_sorted_desc[pair_q2.second] == rhs_subset_sum_1d);
+            assert(set1_weights[pair_q1.first] + set2_weights_sorted_asc[pair_q1.second] + set3_weights[pair_q2.first] + set4_weights_sorted_desc[pair_q2.second] == subset_sum_1d_rhs);
 
             const std::vector<const std::vector<size_t> *> vectors = {&set1_subsets[pair_q1.first], &set2_subsets_sorted_asc[pair_q1.second], &set3_subsets[pair_q2.first], &set4_subsets_sorted_desc[pair_q2.second]};
 
@@ -933,7 +983,7 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
                 write_four_list_solution_to_file(pair_q1.first, asc_indices_set2_weights[pair_q1.second], pair_q2.first, desc_indices_set4_weights[pair_q2.second], list1, list2, list3, list4, instance_name);
             return true;
         }
-        else if (score < rhs_subset_sum_1d)
+        else if (score < subset_sum_1d_rhs)
         {
             size_t pos_set2_weights = pair1.second;
 
@@ -942,17 +992,17 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
 
             ++pos_set2_weights;
 
-            while (pos_set2_weights + 1 < set2_weights.size() && (set2_weights_sorted_asc[pos_set2_weights] == set2_weights_sorted_asc[pair1.second] || (set1_weights[pair1.first] + set2_weights_sorted_asc[pos_set2_weights] + score_pair2) < rhs_subset_sum_1d))
+            while (pos_set2_weights + 1 < set2_weights.size() && (set2_weights_sorted_asc[pos_set2_weights] == set2_weights_sorted_asc[pair1.second] || (set1_weights[pair1.first] + set2_weights_sorted_asc[pos_set2_weights] + score_pair2) < subset_sum_1d_rhs))
                 ++pos_set2_weights;
 
             /* Again, the element in q1 can only increase (or stay equal). So ignore elements that are already too big. */
-            if (pos_set2_weights < set2_weights.size() && set1_weights[pair1.first] + set2_weights_sorted_asc[pos_set2_weights] <= rhs_subset_sum_1d)
+            if (pos_set2_weights < set2_weights.size() && set1_weights[pair1.first] + set2_weights_sorted_asc[pos_set2_weights] <= subset_sum_1d_rhs)
             {
                 heap1.emplace_back(pair1.first, pos_set2_weights);
                 std::push_heap(heap1.begin(), heap1.end(), min_cmp);
             }
         }
-        else if (score > rhs_subset_sum_1d)
+        else if (score > subset_sum_1d_rhs)
         {
             size_t pos_set4_weights = pair2.second;
 
@@ -962,10 +1012,10 @@ bool shroeppel_shamir(const std::vector<size_t> &subset_sum_1d, size_t rhs_subse
             ++pos_set4_weights;
 
             /* Skip all entries in set4_weights until we find a smaller one. */
-            while (pos_set4_weights + 1 < set4_weights.size() && (set4_weights_sorted_desc[pos_set4_weights] == set4_weights_sorted_desc[pair2.second] || (score_pair1 + set3_weights[pair2.first] + set4_weights_sorted_desc[pos_set4_weights]) > rhs_subset_sum_1d))
+            while (pos_set4_weights + 1 < set4_weights.size() && (set4_weights_sorted_desc[pos_set4_weights] == set4_weights_sorted_desc[pair2.second] || (score_pair1 + set3_weights[pair2.first] + set4_weights_sorted_desc[pos_set4_weights]) > subset_sum_1d_rhs))
                 ++pos_set4_weights;
 
-            if (pos_set4_weights < set4_weights.size() && set3_weights[pair2.first] + set4_weights_sorted_desc[pos_set4_weights] <= rhs_subset_sum_1d)
+            if (pos_set4_weights < set4_weights.size() && set3_weights[pair2.first] + set4_weights_sorted_desc[pos_set4_weights] <= subset_sum_1d_rhs)
             {
                 heap2.emplace_back(pair2.first, pos_set4_weights);
                 std::push_heap(heap2.begin(), heap2.end(), max_cmp);
@@ -1001,6 +1051,7 @@ int main(int argc, char *argv[])
     size_t seed = 2025;
     size_t m = 5;
     size_t n = 0;
+    size_t n_reduce = 0;
 
     program.add_argument("-m", "--m")
         .store_into(m)
@@ -1009,6 +1060,11 @@ int main(int argc, char *argv[])
     program.add_argument("-n", "--n")
         .store_into(n)
         .help("Number of columns of the markshare problem. Set to (m - 1) * 10 if not given. ")
+        .default_value(0);
+
+    program.add_argument("--reduce")
+        .store_into(n_reduce)
+        .help("Number of rows (max) to be reduced. Only effective if --reduced is set. ")
         .default_value(0);
 
     program.add_argument("-s", "--seed")
@@ -1066,19 +1122,17 @@ int main(int argc, char *argv[])
         printf("Running markshare: m=%ld, n=%ld, seed=%ld, iter=%ld, nthread=%d\n", instance.m(), instance.n(), seed_iter, i_iter, omp_get_max_threads());
         instance.print();
 
-        // MarkShareFeas instance(4, 10 * 3, {72, 30, 67, 47, 91, 83, 67, 35, 11, 35, 35, 73, 84, 46, 37, 44, 73, 33, 29, 82, 55, 1, 65, 21, 89, 54, 81, 67, 68, 43, 49, 11, 62, 38, 58, 5, 98, 20, 79, 89, 14, 14, 43, 57, 53, 51, 65, 66, 71, 19, 0, 11, 31, 39, 66, 95, 27, 35, 10, 80, 3, 3, 72, 49, 48, 46, 43, 48, 73, 42, 25, 10, 34, 64, 46, 37, 1, 10, 18, 38, 5, 18, 58, 52, 30, 82, 76, 33, 65, 56, 69, 75, 79, 93, 21, 59, 27, 29, 32, 57, 78, 37, 13, 65, 96, 0, 18, 24, 21, 90, 88, 49, 55, 0, 30, 27, 99, 48, 66, 79}, {809, 678, 592, 762});
-        /* Solution is [1 0 1 0 1 0 0 0 1 0 0 1 0 1 0 1 0 1 0 1 1 1 0 1 1 0 1 0 0 1] */
-
         /* Solve the instance using one of the available algorithms. */
 
         /* Create the one dimensional subset sum problem. */
-        const size_t rhs_subset_sum_1d = instance.b()[0];
-        const std::vector<size_t> subset_sum_1d(instance.A().begin(), instance.A().begin() + instance.n());
-
+        // const size_t rhs_subset_sum_1d = instance.b()[0];
+        // const std::vector<size_t> subset_sum_1d(instance.A().begin(), instance.A().begin() + instance.n());
         // two_list_algorithm(subset_sum_1d, rhs_subset_sum_1d);
 
-        /* Shroeppel-Shamir */
-        if (shroeppel_shamir(subset_sum_1d, rhs_subset_sum_1d, instance, program["--gpu"] == true, instance_name))
+        const bool on_gpu = (program["--gpu"] == true);
+        const bool found = shroeppel_shamir_dim_reduced<uint64_t>(instance, on_gpu, instance_name, n_reduce);
+
+        if (found)
             printf("Found feasible solution!\n");
         else
             printf("Instance was infeasible .. \n");

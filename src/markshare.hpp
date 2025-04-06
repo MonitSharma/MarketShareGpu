@@ -132,6 +132,27 @@ public:
         return n_cols;
     }
 
+    template <typename T>
+    std::pair<std::vector<T>, T> reduce_first_dimensions(size_t n_dim, T basis) const
+    {
+        std::vector<T> reduced_dims(n_cols, 0);
+        T basis_to_power = 1;
+        T reduced_rhs = 0;
+
+        assert(n_dim <= m_rows);
+
+        for (size_t i_dim = 0; i_dim < n_dim; ++i_dim)
+        {
+            for (size_t j_col = 0; j_col < n_cols; ++j_col)
+                reduced_dims[j_col] += basis_to_power * matrix[i_dim * n_cols + j_col];
+            reduced_rhs += basis_to_power * rhs[i_dim];
+
+            basis_to_power *= basis;
+        }
+
+        return {reduced_dims, reduced_rhs};
+    }
+
     bool check_sum_feas(const size_t *values1, const size_t *values2) const
     {
         assert(values1[0] + values2[0] == rhs[0]);
@@ -144,15 +165,18 @@ public:
         return true;
     }
 
-    void compute_value(const std::vector<size_t> &indices, size_t offset, size_t *values) const
+    void compute_value(const std::vector<size_t> &indices, size_t col_offset, size_t row_offset, size_t *values) const
     {
-        for (size_t row = 0; row < m_rows; ++row)
+        const size_t m_rows_left = m_rows - row_offset;
+
+        for (size_t row = 0; row < m_rows_left; ++row)
         {
+            size_t row_prob = row + row_offset;
             size_t val = 0;
             for (size_t i_idx = 0; i_idx < indices.size(); ++i_idx)
             {
-                size_t j_col = indices[i_idx] + offset;
-                val += matrix[row * n_cols + j_col];
+                size_t j_col = indices[i_idx] + col_offset;
+                val += matrix[row_prob * n_cols + j_col];
             }
 
             values[row] = val;
