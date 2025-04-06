@@ -101,35 +101,6 @@ void GpuData::copy_tuples(const PairsTuple *tuples, size_t n_tuples)
     this->n_tuples = n_tuples;
 }
 
-template <bool ENCODE_REQUIRED>
-__global__ void combine_and_encode_kernel(const size_t *__restrict__ scores1, const size_t *__restrict__ scores2, const size_t *__restrict__ rhs, size_t *__restrict__ pairs, size_t n_pairs, size_t encode_start, size_t encode_end, size_t m_rows)
-{
-    const int i_pair = blockIdx.x * blockDim.x + threadIdx.x;
-    constexpr size_t BASE = 10000; /* Maximum value per vector element */
-
-    if (i_pair >= n_pairs)
-        return;
-
-    __int128_t key = 0;
-    const size_t idx1 = pairs[2 * i_pair];
-    const size_t idx2 = pairs[2 * i_pair + 1];
-
-    for (size_t i_row = encode_start; i_row < encode_end; ++i_row)
-    {
-        /* Compute the pair's score of this row and add it (encoded) to key. */
-        size_t row_score = scores1[idx1 * m_rows + i_row] + scores2[idx2 * m_rows + i_row];
-
-        if (ENCODE_REQUIRED)
-            row_score = rhs[i_row] - row_score;
-
-        /* FMA. */
-        key = key * BASE + row_score;
-    }
-
-    /* Offload key to the original pair position. */
-    *(__int128_t *)(pairs + 2 * i_pair) = key;
-}
-
 /* Converts tuples into pairs. */
 __global__ void flatten_tuples(const size_t *tuples, size_t n_tuples, size_t *pairs)
 {
