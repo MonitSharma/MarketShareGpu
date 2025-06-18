@@ -474,14 +474,13 @@ void combine_scores_cpu(const std::vector<size_t> &set1_scores, const std::vecto
 void print_info_line(const GpuData &gpu_data, size_t i_iter, double time, size_t score1, size_t score2, size_t n_q1, size_t n_q2)
 {
     bool print = false;
-    // if (i_iter < 10)
-    //     print = true;
-    // else if (i_iter < 100 && i_iter % 10 == 0)
-    //     print = true;
-    // else if (i_iter % 100 == 0)
-    //     print = true;
-
-    if (i_iter < 10 || i_iter % 10 == 0)
+    if (i_iter < 10)
+        print = true;
+    else if (i_iter < 100 && i_iter % 10 == 0)
+        print = true;
+    else if (i_iter < 10000 && i_iter % 100 == 0)
+        print = true;
+    else if (i_iter % 1000 == 0)
         print = true;
 
     if (print)
