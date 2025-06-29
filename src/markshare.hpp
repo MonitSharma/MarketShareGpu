@@ -32,13 +32,13 @@ public:
      * See
      * Gérard Cornuéjols, Milind Dawande, (1999) A Class of Hard Small 0-1 Programs. INFORMS Journal on Computing 11(2):205-210, https://doi.org/10.1287/ijoc.11.2.205.
      */
-    MarkShareFeas(size_t m, size_t n, size_t seed = 0) : m_rows{m}, n_cols{n}
+    MarkShareFeas(size_t m, size_t n, size_t k, size_t seed = 0) : m_rows{m}, n_cols{n}
     {
         matrix.reserve(m_rows * n_cols);
         rhs.reserve(m_rows);
 
         constexpr size_t lower = 0;
-        constexpr size_t upper = 99;
+        size_t upper = k;
 
         std::mt19937 generator(seed);
 

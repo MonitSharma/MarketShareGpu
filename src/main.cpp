@@ -208,66 +208,6 @@ std::vector<size_t> extract_subset(const std::vector<size_t> &numbers, size_t in
     return indices;
 }
 
-void print_two_list_solution(size_t index_list1, size_t index_list2, const std::vector<size_t> &list1, const std::vector<size_t> &list2)
-{
-    auto sum1 = print_subset_and_compute_sum(list1, index_list1);
-    auto sum2 = print_subset_and_compute_sum(list2, index_list2);
-
-    std::cout << "The sum is " << sum1 << " + " << sum2 << " = " << sum1 + sum2 << std::endl;
-}
-
-bool two_list_algorithm(const std::vector<size_t> &subset_sum_1d, size_t rhs_subset_sum_1d)
-{
-    const size_t split_index = subset_sum_1d.size() / 2;
-
-    std::vector<size_t> list1(subset_sum_1d.begin(), subset_sum_1d.begin() + split_index);
-    std::vector<size_t> list2(subset_sum_1d.begin() + split_index, subset_sum_1d.end());
-
-    assert(list1.size() + list2.size() == subset_sum_1d.size());
-
-    /* We produce the possible subsets for list1 and list2. Each subset corresponds to an entry in the vector. The elements used are given by the binary representation of the accessed element. */
-    auto [set1_weights, set1_subsets] = generate_subsets(list1);
-    auto [set2_weights, set2_subsets] = generate_subsets(list2);
-
-    printf("Sorting the lists!\n");
-
-    /* Sort the subsets, set1_weights ascending, set2_weights descending. */
-    auto asc_indices1 = sort_indices(set1_weights, true);
-    auto desc_indices2 = sort_indices(set2_weights, false);
-
-    printf("Finding solutions\n");
-    /* Iterate the lists (one from the front and one from the back an generate solutions to the subset sum problem). */
-    size_t pos_list1 = 0;
-    size_t pos_list2 = 0;
-
-    std::vector<std::pair<size_t, size_t>> solutions;
-
-    while (pos_list1 < set1_weights.size() && pos_list2 < set2_weights.size())
-    {
-        const size_t elem_asc = set1_weights[asc_indices1[pos_list1]];
-        const size_t elem_desc = set2_weights[desc_indices2[pos_list2]];
-
-        const size_t elem_sum = elem_asc + elem_desc;
-
-        if (elem_sum == rhs_subset_sum_1d)
-        {
-            printf("Found solution! \n");
-
-            // check_solution()
-            // solutions.push_back({elem_asc, elem_desc});
-            // ++pos_list1;
-            print_two_list_solution(asc_indices1[pos_list1], desc_indices2[pos_list2], list1, list2);
-            return true;
-        }
-        else if (elem_sum < rhs_subset_sum_1d)
-            ++pos_list1;
-        else
-            ++pos_list2;
-    }
-
-    return false;
-}
-
 void concat_vectors(std::vector<size_t> &concat_vec, size_t &concat_len, const std::vector<const std::vector<size_t> *> &vectors, const std::vector<size_t> offsets)
 {
     assert(vectors.size() == offsets.size());
@@ -386,9 +326,9 @@ __int128_t encode_vector(const size_t *vec, size_t len)
     return hash_value;
 }
 
-std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_cpu_hashing(const MarkShareFeas &ms_inst, const std::vector<size_t> &scores_q1, const std::vector<size_t> &scores_q2, size_t n_q1, size_t n_q2)
+std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_cpu_hashing(const MarkShareFeas &ms_inst, const std::vector<size_t> &scores_q1, const std::vector<size_t> &scores_q2, size_t n_q1, size_t n_q2, size_t row_offset)
 {
-    const size_t len_vec = ms_inst.m();
+    const size_t len_vec = ms_inst.m() - row_offset;
     std::unordered_map<__int128_t, size_t> hashTable;
     std::vector<size_t> needed(len_vec);
     bool done = false;
@@ -399,7 +339,7 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_solutions_cpu_hashing(const 
     {
         for (size_t j = 0; j < len_vec; ++j)
         {
-            needed[j] = ms_inst.b()[j] - scores_q1[i_q1 * len_vec + j];
+            needed[j] = ms_inst.b()[row_offset + j] - scores_q1[i_q1 * len_vec + j];
         }
 
         __int128_t needed_key = encode_vector(needed.data(), len_vec);
@@ -452,8 +392,11 @@ void compute_scores_cpu(const MarkShareFeas &ms_inst, std::vector<size_t> &score
     }
 }
 
-void combine_scores_cpu(const std::vector<size_t> &set1_scores, const std::vector<size_t> &set2_scores, size_t m_rows, const std::vector<PairsTuple> &tuples, std::vector<size_t> &scores_pairs)
+/* For each tuple consisting of one element in set1_scores and a range of elements in set2_scores, compute its partial right hand side. */
+void combine_scores_cpu(const std::vector<size_t> &set1_scores, const std::vector<size_t> &set2_scores, size_t m_rows, const std::vector<PairsTuple> &tuples, std::vector<size_t> &scores_pairs, size_t row_offset)
 {
+    const size_t m_rows_left = m_rows - row_offset;
+
 #pragma omp parallel for
     for (size_t i_tuple = 0; i_tuple < tuples.size(); ++i_tuple)
     {
@@ -464,8 +407,8 @@ void combine_scores_cpu(const std::vector<size_t> &set1_scores, const std::vecto
 
         for (size_t second = pair_second_beg; second < pair_second_end; ++second)
         {
-            for (size_t i_row = 0; i_row < m_rows; ++i_row)
-                scores_pairs[pair_offset * m_rows + i_row] = set1_scores[first * m_rows + i_row] + set2_scores[second * m_rows + i_row];
+            for (size_t i_row = 0; i_row < m_rows_left; ++i_row)
+                scores_pairs[pair_offset * m_rows_left + i_row] = set1_scores[first * m_rows_left + i_row] + set2_scores[second * m_rows_left + i_row];
             ++pair_offset;
         }
     }
@@ -565,13 +508,13 @@ std::pair<size_t, T> max_encodable_dimension(size_t max_coeff, size_t n_cols)
 }
 
 template <bool ascending, typename T, typename F>
-void extract_pairs_from_heap(std::vector<PairsTuple>& pairs_same_score, std::vector<std::pair<size_t, size_t>> &heap, size_t score_pair, std::vector<size_t> &chunks_beg, std::vector<size_t> &chunks_n_pairs, size_t &n_pairs_chunk, size_t &n_pairs_total, const std::vector<T> &first_weights, const std::vector<T> &second_weights, const std::vector<T> &second_weights_sorted_asc, F&& min_cmp)
+void extract_pairs_from_heap(std::vector<PairsTuple> &pairs_same_score, std::vector<std::pair<size_t, size_t>> &heap, size_t score_pair, std::vector<size_t> &chunks_beg, std::vector<size_t> &chunks_n_pairs, size_t &n_pairs_chunk, size_t &n_pairs_total, const std::vector<T> &first_weights, const std::vector<T> &second_weights, const std::vector<T> &second_weights_sorted_asc, F &&cmp)
 {
     /* For each element a in the heap with score(a) == score_pair, collect all solutions. */
     while (!heap.empty() && first_weights[heap.front().first] + second_weights_sorted_asc[heap.front().second] == score_pair)
     {
         const auto pair1_same_score = heap.front();
-        std::pop_heap(heap.begin(), heap.end(), min_cmp);
+        std::pop_heap(heap.begin(), heap.end(), cmp);
         heap.pop_back();
 
         const size_t pos_second_weights_beg = pair1_same_score.second;
@@ -600,12 +543,12 @@ void extract_pairs_from_heap(std::vector<PairsTuple>& pairs_same_score, std::vec
         if (pos_second_weights_end < second_weights.size())
         {
             if (ascending)
-                assert(score_pair1 < first_weights[pair1_same_score.first] + second_weights_sorted_asc[pos_second_weights_end]);
+                assert(score_pair < first_weights[pair1_same_score.first] + second_weights_sorted_asc[pos_second_weights_end]);
             else
-                assert(score_pair1 > first_weights[pair1_same_score.first] + second_weights_sorted_asc[pos_second_weights_end]);
+                assert(score_pair > first_weights[pair1_same_score.first] + second_weights_sorted_asc[pos_second_weights_end]);
 
             heap.emplace_back(pair1_same_score.first, pos_second_weights_end);
-            std::push_heap(heap.begin(), heap.end(), min_cmp);
+            std::push_heap(heap.begin(), heap.end(), cmp);
         }
     }
     chunks_n_pairs.push_back(n_pairs_chunk);
@@ -621,7 +564,7 @@ bool shroeppel_shamir_dim_reduced(const MarkShareFeas &ms_inst, bool run_on_gpu,
     /* First, attempt some dimensionality reduction/perfect hashing.
      * We know that 0 <= A[i][j] <= 200 and thus sum_j A[i][j] <= n * 200.
      *
-     * So, reserving n * 200 + 1 intervals for each of the entries i of a vector A.j we have a overlap free combination.
+     * So, reserving n * 200 + 1 intervals for each of the entries i of a vector A.j we have an overlap free combination.
      * The amount of dimension we can remove this way is limited by the maximum value of T, the index type we are using for the 1-dimensional subset sum problem.
      */
     constexpr size_t max_coeff = 200;
@@ -778,11 +721,12 @@ bool shroeppel_shamir_dim_reduced(const MarkShareFeas &ms_inst, bool run_on_gpu,
             size_t i_q1_chunk = 0;
             size_t i_q2_chunk = 0;
 
+            const size_t n_q1_chunks = chunks_q1_n_pairs.size();
+            const size_t n_q2_chunks = chunks_q2_n_pairs.size();
+
             if (run_on_gpu)
             {
                 profiler_inside_loop = std::make_unique<ScopedProfiler>("Evaluate solutions GPU      ");
-                const size_t n_q1_chunks = chunks_q1_n_pairs.size();
-                const size_t n_q2_chunks = chunks_q2_n_pairs.size();
 
                 assert(n_q1_chunks > 0);
                 assert(n_q2_chunks > 0);
@@ -890,16 +834,19 @@ bool shroeppel_shamir_dim_reduced(const MarkShareFeas &ms_inst, bool run_on_gpu,
             }
             else
             {
+                assert(n_q1_chunks == 1);
+                assert(n_q2_chunks == 1);
+
                 /* Precompute the partial scores. */
                 std::vector<size_t> buffered_scores_q1(ms_inst.m() * n_pairs_q1);
                 std::vector<size_t> buffered_scores_q2(ms_inst.m() * n_pairs_q2);
 
-                combine_scores_cpu(set1_scores, set2_scores_sorted_asc, ms_inst.m(), same_score_q1, buffered_scores_q1);
-                combine_scores_cpu(set3_scores, set4_scores_sorted_desc, ms_inst.m(), same_score_q2, buffered_scores_q2);
+                combine_scores_cpu(set1_scores, set2_scores_sorted_asc, ms_inst.m(), same_score_q1, buffered_scores_q1, reduce_dim);
+                combine_scores_cpu(set3_scores, set4_scores_sorted_desc, ms_inst.m(), same_score_q2, buffered_scores_q2, reduce_dim);
 
                 profiler_inside_loop = std::make_unique<ScopedProfiler>("Evaluate solutions CPU      ");
 
-                auto [done, solution_indices] = evaluate_solutions_cpu_hashing(ms_inst, buffered_scores_q1, buffered_scores_q2, n_pairs_q1, n_pairs_q2);
+                auto [done, solution_indices] = evaluate_solutions_cpu_hashing(ms_inst, buffered_scores_q1, buffered_scores_q2, n_pairs_q1, n_pairs_q2, reduce_dim);
 
                 found = done;
                 solution = solution_indices;
@@ -1023,6 +970,7 @@ int main(int argc, char *argv[])
     size_t m = 5;
     size_t n = 0;
     size_t n_reduce = 0;
+    size_t k = 100;
 
     program.add_argument("-m", "--m")
         .store_into(m)
@@ -1032,6 +980,11 @@ int main(int argc, char *argv[])
         .store_into(n)
         .help("Number of columns of the markshare problem. Set to (m - 1) * 10 if not given. ")
         .default_value(0);
+
+    program.add_argument("-k", "--k")
+        .store_into(k)
+        .help("Coefficients are generated in the range [0, k). Set to 100 if not given.")
+        .default_value(100);
 
     program.add_argument("--reduce")
         .store_into(n_reduce)
@@ -1054,7 +1007,7 @@ int main(int argc, char *argv[])
 
     program.add_argument("-f", "--file")
         .store_into(path)
-        .help("Supply instance path to read instance from. Overrides '-m', '-n', and '-i'");
+        .help("Supply instance path to read instance from. Overrides '-m', '-n', '-k', and '-i'");
 
     try
     {
@@ -1075,8 +1028,8 @@ int main(int argc, char *argv[])
     {
         std::string instance_name{};
         const size_t seed_iter = seed + i_iter;
-
         MarkShareFeas instance;
+
         /* Generate/read instance. For now, random instances. */
         if (!path.empty())
         {
@@ -1086,20 +1039,17 @@ int main(int argc, char *argv[])
         }
         else
         {
-            instance = MarkShareFeas(m, n, seed_iter);
+            instance = MarkShareFeas(m, n, k, seed_iter);
             instance_name = "markshare_m_" + std::to_string(m) + "_n_" + std::to_string(n) + "_seed_" + std::to_string(seed_iter);
             instance.write_as_prb(instance_name + ".prb");
         }
+
         printf("Running markshare: m=%ld, n=%ld, seed=%ld, iter=%ld, nthread=%d\n", instance.m(), instance.n(), seed_iter, i_iter, omp_get_max_threads());
         instance.print();
 
         /* Solve the instance using one of the available algorithms. */
 
         /* Create the one dimensional subset sum problem. */
-        // const size_t rhs_subset_sum_1d = instance.b()[0];
-        // const std::vector<size_t> subset_sum_1d(instance.A().begin(), instance.A().begin() + instance.n());
-        // two_list_algorithm(subset_sum_1d, rhs_subset_sum_1d);
-
         const bool on_gpu = (program["--gpu"] == true);
         const bool found = shroeppel_shamir_dim_reduced<uint64_t>(instance, on_gpu, instance_name, n_reduce);
 
