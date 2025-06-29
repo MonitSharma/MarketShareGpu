@@ -1,6 +1,15 @@
-A GPU accelerated variant of Schroeppel-Shamir’s algorithm for solving the market split problem
+# A GPU accelerated variant of Schroeppel-Shamir’s algorithm for solving the market split problem
 
-The algorithm implemented here can be found in TODO.
+The feasibility version of the market split problem (fMSP) as given in [[1]](#1) is equivalent to the n-dimensional subset sum problem: Find a vector $`x_j \in \{0,1\}^n`$ such that
+```math
+\begin{equation}
+    \sum_{j=1}^n a_{ij} x_j = d_i \quad i = 1,\dots,m.
+\end{equation}
+```
+
+Here, $`x_{j}`$ are binary decision variables, $`m, n \in \mathbb{N}`$, and we assume $`a_{ij}, d_i \in \mathbb{N}_0`$.
+
+The algorithm implemented here can be found in [[2]](#2).
 
 This code requires OpenMP. On Ubunutu e.g. run
 ```
@@ -8,7 +17,7 @@ $ apt install libomp-dev
 ```
 CUDA support is optional but recommended.
 
-To compile it:
+## Compile
 ```
 mkdir build
 cd build
@@ -16,7 +25,7 @@ cmake .. -DCMAKE_BUILD_TYPE=RELEASE
 make -j10
 ```
 
-To get help on available parameters
+## Help
 ```
 ./markshare_main -h
 Usage: markshare [--help] [--version] [--m VAR] [--n VAR] [--k VAR] [--reduce VAR] [--seed VAR] [--iter VAR] [--gpu] [--file VAR] [--max_pairs VAR]
@@ -34,7 +43,9 @@ Optional arguments:
   -f, --file     Supply instance path to read instance from. Overrides '-m', '-n', '-k', and '-i' 
   --max_pairs    Maximum number of pairs to be evaluated on the GPU simultaneously. If GPU runs OOM, reduce this number. [nargs=0..1] [default: 3500000000]
 ```
-Solving market split problems (special n-dimensional subset sum problems):
+
+## Solving market split problems
+
 ```
 OMP_NUM_THREADS=32 ./markshare_main -m 7 -k 100 -s 3 --reduce 1
 ```
@@ -195,3 +206,17 @@ Error: GPU mode not available!
 
 Aborting!
 ```
+
+## References
+
+<a id="1">[1]</a> 
+Cornu{\'e}jols, G., & Dawande, M. (1998).
+A Class of Hard Small 0--1 Programs.
+In *Lecture Notes in Computer Science* (pp. 284--293). Springer Berlin Heidelberg.
+https://doi.org/10.1007/3-540-69346-7\_22
+
+<a id="2">[2]</a> 
+Kempke, N.-C., & Koch, T. (2025).
+A GPU accelerated variant of Schroeppel-Shamir’s algorithm for solving the market split problem.
+Communications of the ACM, 11(3), 147-148.
+ArxivLINK!
