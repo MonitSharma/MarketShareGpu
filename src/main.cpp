@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <execution>
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <numeric>
 #include <limits>
@@ -530,8 +531,13 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_cpu(const std::vector<size_t
     return evaluate_solutions_cpu_hashing(ms_inst, buffered_scores_q1, buffered_scores_q2, n_pairs_q1, n_pairs_q2, reduce_dim);
 }
 
-std::tuple<bool, size_t, size_t, std::pair<size_t, size_t>> evaluate_gpu(GpuData &gpu_data, const std::vector<PairsTuple> &same_score_q1, size_t n_pairs_q1, const std::vector<PairsTuple> &same_score_q2, size_t n_pairs_q2, const MarkShareFeas &ms_inst, size_t reduce_dim, const std::vector<size_t> &chunks_q1_beg, const std::vector<size_t> &chunks_q1_n_pairs, const std::vector<size_t> &chunks_q2_beg, const std::vector<size_t> &chunks_q2_n_pairs, size_t n_q1_chunks, size_t n_q2_chunks, const std::vector<std::vector<size_t>> &set1_subsets, const std::vector<std::vector<size_t>> &set2_subsets_sorted_asc, const std::vector<std::vector<size_t>> &set3_subsets, const std::vector<std::vector<size_t>> &set4_subsets_sorted_desc,
-                                                                         const std::vector<size_t> &subset_sum_1d, const std::vector<size_t> &offsets)
+std::tuple<bool, size_t, size_t, std::pair<size_t, size_t>> evaluate_gpu(GpuData &gpu_data, const std::vector<PairsTuple> &same_score_q1, const std::vector<PairsTuple> &same_score_q2, const MarkShareFeas &ms_inst, size_t reduce_dim, const std::vector<size_t> &chunks_q1_beg, const std::vector<size_t> &chunks_q1_n_pairs, const std::vector<size_t> &chunks_q2_beg, const std::vector<size_t> &chunks_q2_n_pairs, size_t n_q1_chunks, size_t n_q2_chunks, const std::vector<std::vector<size_t>> &set1_subsets, const std::vector<std::vector<size_t>> &set2_subsets_sorted_asc, const std::vector<std::vector<size_t>> &set3_subsets, const std::vector<std::vector<size_t>> &set4_subsets_sorted_desc,
+                                                                         const std::vector<size_t> &subset_sum_1d, const std::vector<size_t> &offsets
+#ifndef NDEBUG
+                                                                         ,
+                                                                         size_t n_pairs_q1, size_t n_pairs_q2
+#endif
+)
 {
     assert(n_q1_chunks > 0);
     assert(n_q2_chunks > 0);
@@ -596,6 +602,132 @@ std::tuple<bool, size_t, size_t, std::pair<size_t, size_t>> evaluate_gpu(GpuData
     assert(n_q1_pairs_offset == n_pairs_q1);
 
     return {false, 0, 0, {0, 0}};
+}
+
+enum BufferState
+{
+    EMPTY,
+    EXTRACTING,
+    READY_FOR_EVAL,
+    EVALUATING,
+    EVALUATED
+};
+
+struct PipelineBuffer
+{
+    std::vector<PairsTuple> same_score_q1, same_score_q2;
+    std::vector<size_t> chunks_q1_n_pairs, chunks_q1_beg;
+    std::vector<size_t> chunks_q2_n_pairs, chunks_q2_beg;
+    size_t n_pairs_q1 = 0, n_pairs_q2 = 0;
+    BufferState state = EMPTY;
+};
+
+struct EvalResult
+{
+    bool found = false;
+    std::pair<size_t, size_t> solution;
+    size_t i_q1_chunk = 0;
+    size_t i_q2_chunk = 0;
+};
+
+EvalResult evaluate_gpu_or_cpu(PipelineBuffer &buf, GpuData &gpu_data, const MarkShareFeas &ms_inst, size_t reduce_dim, const std::vector<size_t> &set1_scores, const std::vector<size_t> &set2_scores_sorted_asc, const std::vector<size_t> &set3_scores, const std::vector<size_t> &set4_scores_sorted_desc, const std::vector<std::vector<size_t>> &set1_subsets, const std::vector<std::vector<size_t>> &set2_subsets_sorted_asc, const std::vector<std::vector<size_t>> &set3_subsets, const std::vector<std::vector<size_t>> &set4_subsets_sorted_desc, const std::vector<size_t> &subset_sum_1d, const std::vector<size_t> &offsets, bool run_on_gpu)
+{
+    EvalResult res;
+
+    const size_t n_q1_chunks = buf.chunks_q1_n_pairs.size();
+    const size_t n_q2_chunks = buf.chunks_q2_n_pairs.size();
+
+    if (run_on_gpu)
+    {
+        auto profiler_evaluate = std::make_unique<ScopedProfiler>("Evaluate solutions GPU      ");
+
+        auto [done, q1_chunk, q2_chunk, solution_indices] = evaluate_gpu(gpu_data, buf.same_score_q1, buf.same_score_q2, ms_inst, reduce_dim, buf.chunks_q1_beg, buf.chunks_q1_n_pairs, buf.chunks_q2_beg, buf.chunks_q2_n_pairs, n_q1_chunks, n_q2_chunks, set1_subsets, set2_subsets_sorted_asc, set3_subsets, set4_subsets_sorted_desc, subset_sum_1d, offsets
+#ifndef NDEBUG
+                                                                         ,
+                                                                         buf.n_pairs_q1,
+                                                                         buf.n_pairs_q2
+#endif
+        );
+
+        res.found = done;
+        res.solution = solution_indices;
+        res.i_q1_chunk = q1_chunk;
+        res.i_q2_chunk = q2_chunk;
+
+        profiler_evaluate.reset();
+    }
+    else
+    {
+        assert(n_q1_chunks == 1);
+        assert(n_q2_chunks == 1);
+        auto profiler_evaluate = std::make_unique<ScopedProfiler>("Evaluate solutions CPU      ");
+
+        auto [done, solution_indices] = evaluate_cpu(set1_scores, set2_scores_sorted_asc, set3_scores, set4_scores_sorted_desc, buf.same_score_q1, buf.n_pairs_q1, buf.same_score_q2, buf.n_pairs_q2, ms_inst, reduce_dim);
+
+        res.found = done;
+        res.solution = solution_indices;
+        res.i_q1_chunk = 0;
+        res.i_q2_chunk = 0;
+
+        profiler_evaluate.reset();
+    }
+
+    buf.state = EVALUATED;
+
+    return res;
+}
+
+template <typename T>
+bool print_and_verify_solution(const PipelineBuffer &buf, const EvalResult &res, const MarkShareFeas &ms_inst, const std::vector<size_t> &subset_sum_1d, const std::vector<size_t> &offsets, const std::vector<T> &asc_indices_set2_weights, const std::vector<T> &desc_indices_set4_weights, const std::vector<std::vector<size_t>> &set1_subsets, const std::vector<std::vector<size_t>> &set2_subsets_sorted_asc, const std::vector<std::vector<size_t>> &set3_subsets, const std::vector<std::vector<size_t>> &set4_subsets_sorted_desc, std::vector<T> &list1, std::vector<T> &list2, std::vector<T> &list3, std::vector<T> &list4, const std::string &instance_name
+
+#ifndef NDEBUG
+                               ,
+                               size_t subset_sum_1d_rhs,
+                               const std::vector<T> &set1_weights, const std::vector<T> &set2_weights_sorted_asc, const std::vector<T> &set3_weights, const std::vector<T> &set4_weights_sorted_desc
+#endif
+)
+{
+    /* Get the correct pairs. */
+    size_t pos_q1 = buf.chunks_q1_beg[res.i_q1_chunk];
+    size_t pos_q2 = buf.chunks_q2_beg[res.i_q2_chunk];
+
+    while (res.solution.first >= buf.same_score_q1[pos_q1].pairs_offset + buf.same_score_q1[pos_q1].pairs_n_second)
+        ++pos_q1;
+    while (res.solution.second >= buf.same_score_q2[pos_q2].pairs_offset + buf.same_score_q2[pos_q2].pairs_n_second)
+        ++pos_q2;
+
+    assert(pos_q1 < buf.chunks_q1_beg[res.i_q1_chunk + 1]);
+    assert(pos_q2 < buf.chunks_q2_beg[res.i_q2_chunk + 1]);
+    assert(res.solution.first - buf.same_score_q1[pos_q1].pairs_offset < buf.same_score_q1[pos_q1].pairs_n_second);
+    assert(res.solution.second - buf.same_score_q2[pos_q2].pairs_offset < buf.same_score_q2[pos_q2].pairs_n_second);
+
+    const size_t pair_q1_second = buf.same_score_q1[pos_q1].pairs_second_beg + res.solution.first - buf.same_score_q1[pos_q1].pairs_offset;
+    const size_t pair_q2_second = buf.same_score_q2[pos_q2].pairs_second_beg + res.solution.second - buf.same_score_q2[pos_q2].pairs_offset;
+    std::pair<size_t, size_t> pair_q1 = {buf.same_score_q1[pos_q1].pairs_first, pair_q1_second};
+    std::pair<size_t, size_t> pair_q2 = {buf.same_score_q2[pos_q2].pairs_first, pair_q2_second};
+
+    std::vector<size_t> solution_1d(subset_sum_1d.size());
+
+    assert(set1_weights[pair_q1.first] + set2_weights_sorted_asc[pair_q1.second] + set3_weights[pair_q2.first] + set4_weights_sorted_desc[pair_q2.second] == subset_sum_1d_rhs);
+
+    const std::vector<const std::vector<size_t> *> vectors = {&set1_subsets[pair_q1.first], &set2_subsets_sorted_asc[pair_q1.second], &set3_subsets[pair_q2.first], &set4_subsets_sorted_desc[pair_q2.second]};
+
+    size_t len;
+    concat_vectors(solution_1d, len, vectors, offsets);
+
+    /* We found a solution. Construct it, print it, and return. */
+    if (!ms_inst.is_solution_feasible(solution_1d, len))
+    {
+        printf("Error, solution is not feasible!\n");
+        exit(1);
+    }
+
+    printf("Found market share solution from SS-Algorithm!\n");
+    print_four_list_solution(pair_q1.first, asc_indices_set2_weights[pair_q1.second], pair_q2.first, desc_indices_set4_weights[pair_q2.second], list1, list2, list3, list4);
+
+    if (!instance_name.empty())
+        write_four_list_solution_to_file(pair_q1.first, asc_indices_set2_weights[pair_q1.second], pair_q2.first, desc_indices_set4_weights[pair_q2.second], list1, list2, list3, list4, instance_name);
+    return true;
 }
 
 template <typename T>
@@ -683,11 +815,6 @@ bool shroeppel_shamir_dim_reduced(const MarkShareFeas &ms_inst, bool run_on_gpu,
 
     /* Vectors used to count the number of elements extracted from q1/q2 with the same solution value. */
     /* Each tuple {a, b, c, d} will describe the range of pairs <a, b> ... <a, b + c - 1>; d denotes the offset of the pairs within a list of all pairs. */
-    std::vector<PairsTuple> same_score_q1;
-    same_score_q1.reserve(100000);
-    std::vector<PairsTuple> same_score_q2;
-    same_score_q2.reserve(100000);
-
     std::vector<std::pair<size_t, size_t>> heap1;
     heap1.reserve(set1_weights.size());
     std::vector<std::pair<size_t, size_t>> heap2;
@@ -712,7 +839,21 @@ bool shroeppel_shamir_dim_reduced(const MarkShareFeas &ms_inst, bool run_on_gpu,
 
     profiler = std::make_unique<ScopedProfiler>("List traversal              ");
 
+    PipelineBuffer buffers[2];
+    std::future<EvalResult> eval_future[2];
+
+    buffers[0].same_score_q1.reserve(100000);
+    buffers[0].same_score_q2.reserve(100000);
+    buffers[1].same_score_q1.reserve(100000);
+    buffers[1].same_score_q2.reserve(100000);
+
+    buffers[0].state = EMPTY;
+    buffers[1].state = EMPTY;
+
+    size_t curr = 0;
+    size_t next = 1;
     size_t i_iter_checking = 0;
+
     while (!heap1.empty() && !heap2.empty())
     {
         /* score_pair1 is the currently lowest score in {set1_weights, set2_weights} we are still considering */
@@ -725,121 +866,81 @@ bool shroeppel_shamir_dim_reduced(const MarkShareFeas &ms_inst, bool run_on_gpu,
         if (score == subset_sum_1d_rhs)
         {
             /* Extract all tuples from both lists with equal scores. Potentially, we subdivide extracted tuples into chunks to not overflow the GPU memory. We remember the start and number of pairs in each chunk. */
-            std::vector<size_t> chunks_q1_n_pairs;
-            std::vector<size_t> chunks_q1_beg;
-            std::vector<size_t> chunks_q2_n_pairs;
-            std::vector<size_t> chunks_q2_beg;
+            auto &buf_curr = buffers[curr];
+            auto &buf_next = buffers[next];
+            assert(buf_curr.state == EMPTY);
+            buf_curr.state = EXTRACTING;
 
-            chunks_q1_beg.push_back(0);
-            chunks_q2_beg.push_back(0);
+            /* Reset the buffer. */
+            /* Clear vectors but keep their old capacity. */
+            buf_curr.same_score_q1.clear();
+            buf_curr.same_score_q2.clear();
+
+            buf_curr.chunks_q1_beg.clear();
+            buf_curr.chunks_q2_beg.clear();
+
+            buf_curr.chunks_q1_n_pairs.clear();
+            buf_curr.chunks_q2_n_pairs.clear();
+
+            buf_curr.chunks_q1_beg.push_back(0);
+            buf_curr.chunks_q2_beg.push_back(0);
 
             ++i_iter_checking;
-            /* Clear vectors but keep their old capacity. */
-            same_score_q1.clear();
-            same_score_q2.clear();
-            size_t n_pairs_q1 = 0;
-            size_t n_pairs_q2 = 0;
 
-            auto profiler_inside_loop = std::make_unique<ScopedProfiler>("Candidate extraction        ");
+            buf_curr.n_pairs_q1 = 0;
+            buf_curr.n_pairs_q2 = 0;
+
+            auto profiler_cand_extraction = std::make_unique<ScopedProfiler>("Candidate extraction        ");
 
             /* In CPU parallel, extract equal tuples from each heap. */
 #pragma omp parallel sections num_threads(2)
             {
 #pragma omp section
                 {
-                    extract_pairs_from_heap<true, T>(same_score_q1, heap1, score_pair1, chunks_q1_beg, chunks_q1_n_pairs, n_pairs_q1, set1_weights, set2_weights, set2_weights_sorted_asc, min_cmp);
+                    extract_pairs_from_heap<true, T>(buf_curr.same_score_q1, heap1, score_pair1, buf_curr.chunks_q1_beg, buf_curr.chunks_q1_n_pairs, buf_curr.n_pairs_q1, set1_weights, set2_weights, set2_weights_sorted_asc, min_cmp);
                 }
 #pragma omp section
                 {
-                    extract_pairs_from_heap<false, T>(same_score_q2, heap2, score_pair2, chunks_q2_beg, chunks_q2_n_pairs, n_pairs_q2, set3_weights, set4_weights, set4_weights_sorted_desc, max_cmp);
+                    extract_pairs_from_heap<false, T>(buf_curr.same_score_q2, heap2, score_pair2, buf_curr.chunks_q2_beg, buf_curr.chunks_q2_n_pairs, buf_curr.n_pairs_q2, set3_weights, set4_weights, set4_weights_sorted_desc, max_cmp);
                 }
             }
-            profiler_inside_loop = std::make_unique<ScopedProfiler>("Combine scores              ");
+            buf_curr.state = READY_FOR_EVAL;
 
-            print_info_line(gpu_data, i_iter_checking, profilerTotal->elapsed(), score_pair1, score_pair2, n_pairs_q1, n_pairs_q2);
+            profiler_cand_extraction.reset();
+            print_info_line(gpu_data, i_iter_checking, profilerTotal->elapsed(), score_pair1, score_pair2, buf_curr.n_pairs_q1, buf_curr.n_pairs_q2);
 
-            bool found = false;
-            std::pair<size_t, size_t> solution;
-            size_t i_q1_chunk = 0;
-            size_t i_q2_chunk = 0;
-
-            const size_t n_q1_chunks = chunks_q1_n_pairs.size();
-            const size_t n_q2_chunks = chunks_q2_n_pairs.size();
-
-            if (run_on_gpu)
+            /* Before submitting the current buffer, wait until the last one is finished. */
+            if (buf_next.state != EMPTY)
             {
-                profiler_inside_loop = std::make_unique<ScopedProfiler>("Evaluate solutions GPU      ");
+                eval_future[next].wait();
+                const auto &result = eval_future[next].get();
+                assert(buf_next.state == EVALUATED);
 
-                auto [done, q1_chunk, q2_chunk, solution_indices] = evaluate_gpu(gpu_data, same_score_q1, n_pairs_q1, same_score_q2, n_pairs_q2, ms_inst, reduce_dim, chunks_q1_beg, chunks_q1_n_pairs, chunks_q2_beg, chunks_q2_n_pairs, n_q1_chunks, n_q2_chunks, set1_subsets, set2_subsets_sorted_asc, set3_subsets, set4_subsets_sorted_desc, subset_sum_1d, offsets);
+                /* Check the result - break if we are done. */
+                if (result.found)
+                {
+                    return print_and_verify_solution(buf_next, result, ms_inst, subset_sum_1d, offsets, asc_indices_set2_weights, set4_weights_sorted_desc, set1_subsets, set2_subsets_sorted_asc, set3_subsets, set4_subsets_sorted_desc, list1, list2, list3, list4, instance_name
+#ifndef NDEBUG
+                                                     ,
+                                                     subset_sum_1d_rhs,
+                                                     set1_weights,
+                                                     set2_weights_sorted_asc, set3_weights, set4_weights_sorted_desc
+#endif
+                    );
+                }
 
-                found = done;
-                solution = solution_indices;
-                i_q1_chunk = q1_chunk;
-                i_q2_chunk = q2_chunk;
-
-                profiler_inside_loop.reset();
+                buf_next.state = EMPTY;
             }
-            else
-            {
-                assert(n_q1_chunks == 1);
-                assert(n_q2_chunks == 1);
-                profiler_inside_loop = std::make_unique<ScopedProfiler>("Evaluate solutions CPU      ");
+            assert(buf_next.state == EMPTY);
 
-                auto [done, solution_indices] = evaluate_cpu(set1_scores, set2_scores_sorted_asc, set3_scores, set4_scores_sorted_desc, same_score_q1, n_pairs_q1, same_score_q2, n_pairs_q2, ms_inst, reduce_dim);
+            buf_curr.state = EVALUATING;
+            /* Launch evaluation in background thread. */
+            eval_future[curr] = std::async(std::launch::async, [&]()
+                                           { return evaluate_gpu_or_cpu(buf_curr, gpu_data, ms_inst, reduce_dim, set1_scores, set2_scores_sorted_asc, set3_scores, set4_scores_sorted_desc, set1_subsets, set2_subsets_sorted_asc, set3_subsets, set4_subsets_sorted_desc, subset_sum_1d, offsets, run_on_gpu); });
 
-                found = done;
-                solution = solution_indices;
-                i_q1_chunk = 0;
-                i_q2_chunk = 0;
-
-                profiler_inside_loop.reset();
-            }
-
-            if (!found)
-                continue;
-
-            /* Print and verify the solution! */
-            /* Get the correct pairs. */
-            size_t pos_q1 = chunks_q1_beg[i_q1_chunk];
-            size_t pos_q2 = chunks_q2_beg[i_q2_chunk];
-
-            while (solution.first >= same_score_q1[pos_q1].pairs_offset + same_score_q1[pos_q1].pairs_n_second)
-                ++pos_q1;
-            while (solution.second >= same_score_q2[pos_q2].pairs_offset + same_score_q2[pos_q2].pairs_n_second)
-                ++pos_q2;
-
-            assert(pos_q1 < chunks_q1_beg[i_q1_chunk + 1]);
-            assert(pos_q2 < chunks_q2_beg[i_q2_chunk + 1]);
-            assert(solution.first - same_score_q1[pos_q1].pairs_offset < same_score_q1[pos_q1].pairs_n_second);
-            assert(solution.second - same_score_q2[pos_q2].pairs_offset < same_score_q2[pos_q2].pairs_n_second);
-
-            const size_t pair_q1_second = same_score_q1[pos_q1].pairs_second_beg + solution.first - same_score_q1[pos_q1].pairs_offset;
-            const size_t pair_q2_second = same_score_q2[pos_q2].pairs_second_beg + solution.second - same_score_q2[pos_q2].pairs_offset;
-            std::pair<size_t, size_t> pair_q1 = {same_score_q1[pos_q1].pairs_first, pair_q1_second};
-            std::pair<size_t, size_t> pair_q2 = {same_score_q2[pos_q2].pairs_first, pair_q2_second};
-
-            std::vector<size_t> solution_1d(subset_sum_1d.size());
-
-            assert(set1_weights[pair_q1.first] + set2_weights_sorted_asc[pair_q1.second] + set3_weights[pair_q2.first] + set4_weights_sorted_desc[pair_q2.second] == subset_sum_1d_rhs);
-
-            const std::vector<const std::vector<size_t> *> vectors = {&set1_subsets[pair_q1.first], &set2_subsets_sorted_asc[pair_q1.second], &set3_subsets[pair_q2.first], &set4_subsets_sorted_desc[pair_q2.second]};
-
-            size_t len;
-            concat_vectors(solution_1d, len, vectors, offsets);
-
-            /* We found a solution. Construct it, print it, and return. */
-            if (!ms_inst.is_solution_feasible(solution_1d, len))
-            {
-                printf("Error, solution is not feasible!\n");
-                exit(1);
-            }
-
-            printf("Found market share solution from SS-Algorithm!\n");
-            print_four_list_solution(pair_q1.first, asc_indices_set2_weights[pair_q1.second], pair_q2.first, desc_indices_set4_weights[pair_q2.second], list1, list2, list3, list4);
-
-            if (!instance_name.empty())
-                write_four_list_solution_to_file(pair_q1.first, asc_indices_set2_weights[pair_q1.second], pair_q2.first, desc_indices_set4_weights[pair_q2.second], list1, list2, list3, list4, instance_name);
-            return true;
+            /* Switch buffer. */
+            curr = next;
+            next = 1 - curr;
         }
         else if (score < subset_sum_1d_rhs)
         {
