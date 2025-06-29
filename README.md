@@ -11,13 +11,14 @@ Here, $`x_{j}`$ are binary decision variables, $`m, n \in \mathbb{N}`$, and we a
 
 The algorithm implemented here can be found in [[2]](#2).
 
+## Compile
+
 This code requires OpenMP. On Ubunutu e.g. run
 ```
 $ apt install libomp-dev
 ```
 CUDA support is optional but recommended.
 
-## Compile
 ```
 mkdir build
 cd build
