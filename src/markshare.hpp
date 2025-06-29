@@ -2,11 +2,12 @@
 
 #include <cassert>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <random>
-#include <vector>
-#include <fstream>
+#include <sstream>
 #include <string>
+#include <vector>
 
 /* A market share feasibility instance. */
 class MarkShareFeas
@@ -38,7 +39,7 @@ public:
         rhs.reserve(m_rows);
 
         constexpr size_t lower = 0;
-        size_t upper = k;
+        size_t upper = k - 1;
 
         std::mt19937 generator(seed);
 
@@ -210,16 +211,42 @@ public:
 
     void print() const
     {
-        std::cout << "[\n";
-        /* Write the matrix. */
+        /* Find max width needed. */
+        size_t max_width_mat = 0;
+        size_t max_width_rhs = 0;
+
+        auto update_width = [](double value, size_t& max_width)
+        {
+            std::ostringstream oss;
+            oss << value;
+            size_t width = oss.str().length();
+            if (width > max_width)
+                max_width = width;
+        };
+
         for (size_t row = 0; row < m_rows; ++row)
         {
-            std::cout << "[";
             for (size_t col = 0; col < n_cols; ++col)
             {
-                std::cout << " " << matrix[row * n_cols + col];
+                update_width(matrix[row * n_cols + col], max_width_mat);
             }
-            std::cout << "\t" << rhs[row] << " ]\n";
+            update_width(rhs[row], max_width_rhs);
+        }
+
+        const size_t padding = 1;
+        max_width_mat += padding;
+        max_width_rhs += padding;
+
+        /* Print. */
+        std::cout << "[\n";
+        for (size_t row = 0; row < m_rows; ++row)
+        {
+            std::cout << " [";
+            for (size_t col = 0; col < n_cols; ++col)
+            {
+                std::cout << std::setw(max_width_mat) << matrix[row * n_cols + col];
+            }
+            std::cout << " |" << std::setw(max_width_rhs) << rhs[row] << " ]\n";
         }
         std::cout << "]\n";
     }

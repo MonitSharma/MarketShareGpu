@@ -1,7 +1,8 @@
-#include "markshare.hpp"
-#include "profiler.hpp"
-
 #include "argparse.hpp"
+
+#include "markshare.hpp"
+#include "pairs_tuple.hpp"
+#include "profiler.hpp"
 
 #include <algorithm>
 #include <bitset>
@@ -9,7 +10,7 @@
 #include <chrono>
 #include <climits> // For CHAR_BIT
 #include <cstddef>
-#include <execution>
+// #include <execution> for TBB parallel sort. Not used because ARM does not support it.
 #include <fstream>
 #include <future>
 #include <iostream>
@@ -27,8 +28,7 @@
 #endif
 
 /* 3000000000 ~= 56 GB of active storage requirement. 4000000000 goes OOM on H200. 3500000000 works and goes up to 63.6 GB. 3900000000 also works and is about ~= 70.11 */
-constexpr size_t max_pairs_per_chunk = 3500000000;
-// constexpr size_t max_pairs_per_chunk = 400;
+size_t max_pairs_per_chunk = 3500000000;
 
 typedef std::chrono::high_resolution_clock::time_point TimeVar;
 
@@ -152,12 +152,14 @@ std::vector<size_t> sort_indices(const std::vector<T> &arr, bool ascending)
     // Sort indices based on corresponding values in the array
     if (ascending)
     {
-        std::sort(std::execution::par_unseq, indices.begin(), indices.end(), [&arr](size_t i1, size_t i2)
+        /* Sequential sort - parallel requires TBB which is not available on ARM. */
+        std::sort(/*std::execution::par_unseq,*/ indices.begin(), indices.end(), [&arr](size_t i1, size_t i2)
                   { return arr[i1] < arr[i2]; });
     }
     else
     {
-        std::sort(std::execution::par_unseq, indices.begin(), indices.end(), [&arr](size_t i1, size_t i2)
+        /* Sequential sort - parallel requires TBB which is not available on ARM. */
+        std::sort(/*std::execution::par_unseq,*/ indices.begin(), indices.end(), [&arr](size_t i1, size_t i2)
                   { return arr[i1] > arr[i2]; });
     }
 
@@ -373,7 +375,12 @@ void combine_scores_cpu(const std::vector<size_t> &set1_scores, const std::vecto
     }
 }
 
-void print_info_line(const GpuData &gpu_data, size_t i_iter, double time, size_t score1, size_t score2, size_t n_q1, size_t n_q2)
+void print_info_line(
+#ifdef WITH_GPU
+    const GpuData &gpu_data,
+    bool run_on_gpu,
+#endif
+    size_t i_iter, double time, size_t score1, size_t score2, size_t n_q1, size_t n_q2)
 {
     bool print = false;
     if (i_iter < 10)
@@ -387,8 +394,17 @@ void print_info_line(const GpuData &gpu_data, size_t i_iter, double time, size_t
 
     if (print)
     {
-        const double n_gb = gpu_data.get_gb_allocated();
-        printf("%5ld %8.2fs [%.6f GB]: %6ld + %6ld; %ld x %ld possible solutions\n", i_iter, time, n_gb, score1, score2, n_q1, n_q2);
+#ifdef WITH_GPU
+        if (run_on_gpu)
+        {
+            const double n_gb = gpu_data.get_gb_allocated();
+            printf("%5ld %8.2fs [%.6f GB]: %6ld + %6ld; %ld x %ld possible solutions\n", i_iter, time, n_gb, score1, score2, n_q1, n_q2);
+        }
+        else
+#endif
+        {
+            printf("%5ld %8.2fs: %6ld + %6ld; %ld x %ld possible solutions\n", i_iter, time, score1, score2, n_q1, n_q2);
+        }
     }
 }
 
@@ -531,6 +547,7 @@ std::pair<bool, std::pair<size_t, size_t>> evaluate_cpu(const std::vector<size_t
     return evaluate_solutions_cpu_hashing(ms_inst, buffered_scores_q1, buffered_scores_q2, n_pairs_q1, n_pairs_q2, reduce_dim);
 }
 
+#ifdef WITH_GPU
 std::tuple<bool, size_t, size_t, std::pair<size_t, size_t>> evaluate_gpu(GpuData &gpu_data, const std::vector<PairsTuple> &same_score_q1, const std::vector<PairsTuple> &same_score_q2, const MarkShareFeas &ms_inst, size_t reduce_dim, const std::vector<size_t> &chunks_q1_beg, const std::vector<size_t> &chunks_q1_n_pairs, const std::vector<size_t> &chunks_q2_beg, const std::vector<size_t> &chunks_q2_n_pairs, size_t n_q1_chunks, size_t n_q2_chunks, const std::vector<std::vector<size_t>> &set1_subsets, const std::vector<std::vector<size_t>> &set2_subsets_sorted_asc, const std::vector<std::vector<size_t>> &set3_subsets, const std::vector<std::vector<size_t>> &set4_subsets_sorted_desc,
                                                                          const std::vector<size_t> &subset_sum_1d, const std::vector<size_t> &offsets
 #ifndef NDEBUG
@@ -603,6 +620,7 @@ std::tuple<bool, size_t, size_t, std::pair<size_t, size_t>> evaluate_gpu(GpuData
 
     return {false, 0, 0, {0, 0}};
 }
+#endif
 
 enum BufferState
 {
@@ -630,7 +648,11 @@ struct EvalResult
     size_t i_q2_chunk = 0;
 };
 
-EvalResult evaluate_gpu_or_cpu(PipelineBuffer &buf, GpuData &gpu_data, const MarkShareFeas &ms_inst, size_t reduce_dim, const std::vector<size_t> &set1_scores, const std::vector<size_t> &set2_scores_sorted_asc, const std::vector<size_t> &set3_scores, const std::vector<size_t> &set4_scores_sorted_desc, const std::vector<std::vector<size_t>> &set1_subsets, const std::vector<std::vector<size_t>> &set2_subsets_sorted_asc, const std::vector<std::vector<size_t>> &set3_subsets, const std::vector<std::vector<size_t>> &set4_subsets_sorted_desc, const std::vector<size_t> &subset_sum_1d, const std::vector<size_t> &offsets, bool run_on_gpu)
+EvalResult evaluate_gpu_or_cpu(PipelineBuffer &buf,
+#ifdef WITH_GPU
+                               GpuData &gpu_data,
+#endif
+                               const MarkShareFeas &ms_inst, size_t reduce_dim, const std::vector<size_t> &set1_scores, const std::vector<size_t> &set2_scores_sorted_asc, const std::vector<size_t> &set3_scores, const std::vector<size_t> &set4_scores_sorted_desc, const std::vector<std::vector<size_t>> &set1_subsets, const std::vector<std::vector<size_t>> &set2_subsets_sorted_asc, const std::vector<std::vector<size_t>> &set3_subsets, const std::vector<std::vector<size_t>> &set4_subsets_sorted_desc, const std::vector<size_t> &subset_sum_1d, const std::vector<size_t> &offsets, bool run_on_gpu)
 {
     EvalResult res;
 
@@ -639,6 +661,7 @@ EvalResult evaluate_gpu_or_cpu(PipelineBuffer &buf, GpuData &gpu_data, const Mar
 
     if (run_on_gpu)
     {
+#ifdef WITH_GPU
         auto profiler_evaluate = std::make_unique<ScopedProfiler>("Evaluate solutions GPU      ");
 
         auto [done, q1_chunk, q2_chunk, solution_indices] = evaluate_gpu(gpu_data, buf.same_score_q1, buf.same_score_q2, ms_inst, reduce_dim, buf.chunks_q1_beg, buf.chunks_q1_n_pairs, buf.chunks_q2_beg, buf.chunks_q2_n_pairs, n_q1_chunks, n_q2_chunks, set1_subsets, set2_subsets_sorted_asc, set3_subsets, set4_subsets_sorted_desc, subset_sum_1d, offsets
@@ -655,6 +678,19 @@ EvalResult evaluate_gpu_or_cpu(PipelineBuffer &buf, GpuData &gpu_data, const Mar
         res.i_q2_chunk = q2_chunk;
 
         profiler_evaluate.reset();
+#else
+        (void)n_q1_chunks;
+        (void)n_q2_chunks;
+        (void)set1_subsets;
+        (void)set2_subsets_sorted_asc;
+        (void)set3_subsets;
+        (void)set4_subsets_sorted_desc;
+        (void)subset_sum_1d;
+        (void)offsets;
+
+        printf("Error: GPU mode not available!\n\nAborting!\n");
+        exit(1);
+#endif
     }
     else
     {
@@ -796,7 +832,9 @@ bool shroeppel_shamir_dim_reduced(const MarkShareFeas &ms_inst, bool run_on_gpu,
     compute_scores_cpu(ms_inst, set3_scores, set3_subsets, offsets[2], reduce_dim);
     compute_scores_cpu(ms_inst, set4_scores_sorted_desc, set4_subsets_sorted_desc, offsets[3], reduce_dim);
 
+#ifdef WITH_GPU
     GpuData gpu_data(ms_inst, set1_scores, set2_scores_sorted_asc, set3_scores, set4_scores_sorted_desc);
+#endif
 
     /* Create the priority queues q1 consisting of pairs {(i, 0) | i \in set1_weights} and q2 consisting of {(i, 0) | i \in set3_weights}. The priority/score for a pair (i, j)
      * is given set1_weights[i] + set2_weights[j] if the pair is in q1 and set3_weights[i] + set4_weights[j] if the pair is in q2. */
@@ -907,7 +945,12 @@ bool shroeppel_shamir_dim_reduced(const MarkShareFeas &ms_inst, bool run_on_gpu,
             buf_curr.state = READY_FOR_EVAL;
 
             profiler_cand_extraction.reset();
-            print_info_line(gpu_data, i_iter_checking, profilerTotal->elapsed(), score_pair1, score_pair2, buf_curr.n_pairs_q1, buf_curr.n_pairs_q2);
+            print_info_line(
+#ifdef WITH_GPU
+                gpu_data,
+                run_on_gpu,
+#endif
+                i_iter_checking, profilerTotal->elapsed(), score_pair1, score_pair2, buf_curr.n_pairs_q1, buf_curr.n_pairs_q2);
 
             /* Before submitting the current buffer, wait until the last one is finished. */
             if (buf_next.state != EMPTY)
@@ -936,7 +979,11 @@ bool shroeppel_shamir_dim_reduced(const MarkShareFeas &ms_inst, bool run_on_gpu,
             buf_curr.state = EVALUATING;
             /* Launch evaluation in background thread. */
             eval_future[curr] = std::async(std::launch::async, [&]()
-                                           { return evaluate_gpu_or_cpu(buf_curr, gpu_data, ms_inst, reduce_dim, set1_scores, set2_scores_sorted_asc, set3_scores, set4_scores_sorted_desc, set1_subsets, set2_subsets_sorted_asc, set3_subsets, set4_subsets_sorted_desc, subset_sum_1d, offsets, run_on_gpu); });
+                                           { return evaluate_gpu_or_cpu(buf_curr,
+#ifdef WITH_GPU
+                                                                        gpu_data,
+#endif
+                                                                        ms_inst, reduce_dim, set1_scores, set2_scores_sorted_asc, set3_scores, set4_scores_sorted_desc, set1_subsets, set2_subsets_sorted_asc, set3_subsets, set4_subsets_sorted_desc, subset_sum_1d, offsets, run_on_gpu); });
 
             /* Switch buffer. */
             curr = next;
@@ -1021,12 +1068,11 @@ int main(int argc, char *argv[])
 
     program.add_argument("-n", "--n")
         .store_into(n)
-        .help("Number of columns of the markshare problem. Set to (m - 1) * 10 if not given. ")
-        .default_value(0);
+        .help("Number of columns of the markshare problem. Set to (m - 1) * 10 if not given. ");
 
     program.add_argument("-k", "--k")
         .store_into(k)
-        .help("Coefficients are generated in the range [0, k). Set to 100 if not given.")
+        .help("Coefficients are generated in the range [0, k).")
         .default_value(100);
 
     program.add_argument("--reduce")
@@ -1051,6 +1097,11 @@ int main(int argc, char *argv[])
     program.add_argument("-f", "--file")
         .store_into(path)
         .help("Supply instance path to read instance from. Overrides '-m', '-n', '-k', and '-i'");
+
+    program.add_argument("--max_pairs")
+        .store_into(max_pairs_per_chunk)
+        .help("Maximum number of pairs to be evaluated on the GPU simultaneously. If GPU runs OOM, reduce this number.")
+        .default_value(3500000000);
 
     try
     {
