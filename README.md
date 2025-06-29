@@ -211,13 +211,13 @@ Aborting!
 ## References
 
 <a id="1">[1]</a> 
-Cornu{\'e}jols, G., & Dawande, M. (1998).
-A Class of Hard Small 0--1 Programs.
-In *Lecture Notes in Computer Science* (pp. 284--293). Springer Berlin Heidelberg.
+Cornéujols, G., & Dawande, M. (1998).
+A Class of Hard Small 0-1 Programs.
+In *Lecture Notes in Computer Science* (pp. 284-293). Springer Berlin Heidelberg.
 https://doi.org/10.1007/3-540-69346-7\_22
 
 <a id="2">[2]</a> 
 Kempke, N.-C., & Koch, T. (2025).
 A GPU accelerated variant of Schroeppel-Shamir’s algorithm for solving the market split problem.
-Communications of the ACM, 11(3), 147-148.
+TODO JOURNAL
 ArxivLINK!
