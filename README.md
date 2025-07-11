@@ -13,7 +13,7 @@ The algorithm implemented here can be found in [[2]](#2).
 
 ## Compile
 
-This code requires OpenMP. On Ubunutu e.g. run
+This code requires OpenMP. On Ubuntu e.g. run
 ```
 $ apt install libomp-dev
 ```
