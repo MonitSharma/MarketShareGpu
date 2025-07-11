@@ -53,7 +53,7 @@ OMP_NUM_THREADS=32 ./markshare_main -m 7 -k 100 -s 3 --reduce 1
 Solves a market split problem (7,60) with coefficients in [0, 100) and random seed `3`. Not additional dimensionality reduction via surrogate constraint is applied.
 Solving on CPU:
 ```
-nkempke@opt-008541:~/scratch_htc/git/NCKempke/MarketShareGpu/build (main *)$ OMP_NUM_THREADS=32 ./markshare_main -m 7 -k 100 -s 3 --reduce 1   
+OMP_NUM_THREADS=32 ./markshare_main -m 7 -k 100 -s 3 --reduce 1   
 Storing mark share instance as markshare_m_7_n_60_seed_3.prb
 Running markshare: m=7, n=60, seed=3, iter=0, nthread=32
 [
@@ -208,6 +208,77 @@ Error: GPU mode not available!
 Aborting!
 ```
 
+## Solving QOBLIB problems
+
+To solve problems from [QPBLIB](https://git.zib.de/qopt/qoblib-quantum-optimization-benchmarking-library) [[3]](#3), simply pass the dat files with the `-f` flag:
+
+```
+nkempke@opt-008541:~$ OMP_NUM_THREADS=32 .markshare_main -f ~/git/qoblib-quantum-optimization-benchmarking-library/01-marketsplit/instances/ms_07_100_002.dat --gpu
+Reading instance from file #################/git/qoblib-quantum-optimization-benchmarking-library/01-marketsplit/instances/ms_07_100_002.dat; instance_name ms_07_100_002
+Running markshare: m=7, n=60, seed=2025, iter=0, nthread=32
+[
+ [  92  16  57  80  55  21  68  61  63  99  25  80  53  87  51  53  32  86  90  19  79  31  47  76  29  72  92   2  51  54  47   2  13  90  14  83  21  35  21  14  32  12  20  61   0  64  44  86  94  75  60  89  10  46  25  44  51  94  30  89 | 1543 ]
+ [  62  66   0   5  26  73  23  46  16  95  11  80   4  53  45  73  48  54  10  18  57  12  66   3  39  20  31  85  43  82  45  21  10   6  23  99  12  11  92   0  69  97  62  22  45  60  98  81  14  47  48  61   4  89  79  79 100  26  55  22 | 1361 ]
+ [  64  65  57  99  79  66  96  34  92   7  95  73  32  33   5  89  64   4  92  52  54  55  12  14  59  39  28  13  18  61  80  92  51  56  67  83  65  54   1  48  15  31  37  88  99  21  37  85  65  11  92  10  34 100  52  18  31  91  63  51 | 1589 ]
+ [  58  75  38  59  10  64  27  19  69  35  99  42  36  29  89  94  13  32  31  36  35  76  83  32  83   9  89  91  78  35  25  88  75   8  50  36  73  29  79  21  68  93  48  96   2  61  55  77  60  63  68  90  27  34  34  27  57  68  52  14 | 1572 ]
+ [ 100  49  78  93  72  10  98  73  57  47   6  69  34  84  41  44  36  26  23  96  38  97  21  92  79  38   7  74  81  80  56  26  54  42  35  81  87  60  92  41  11  97  58  75  63  16  67  81  31  36  41  99  12  18  57   5  21  70  58  29 | 1631 ]
+ [   9  77  30  49   7  58  52  80  50  74  67  95  53  65  89  69  28  11  87  39  33  65  75  63  61  11  96  13  29  71  74  94  55  48  94  19  99  91  12  62  95  22  69  27  86  81  63  47  44  98  57  82  41  40  98  26  91   8  85  53 | 1733 ]
+ [  58   7  13  60  38  13  92  71  49  65  79  77  29  18  76  98  27  34  85  33  74  91  46  76  95  25  58  29  47  34  31  33  21  47  81   2  15  12  54   2  81  31  45  28  64  21   3  58  95  19  87  10  27  93   3  85  78  38  79  52 | 1446 ]
+]
+Running reduced dim shroeppel shamir
+Running with 32 threads
+Max reducible dimension is 4 (encoded with basis 12001)
+Reducing 1 dimensions for Shroeppel-Shamir - leaving 6 for verification
+Splitting sets into [0, 14]; [15, 29]; [30, 44]; [45, 60]
+Generating 32768 possible subsets for as set of size 15.
+Generating 32768 possible subsets for as set of size 15.
+Generating 32768 possible subsets for as set of size 15.
+Generating 32768 possible subsets for as set of size 15.
+Running the search loop
+
+    1     0.11s [0.006295 GB]:    177 +   1366; 374 x 2 possible solutions
+    2     0.12s [0.006304 GB]:    179 +   1364; 407 x 2 possible solutions
+    3     0.14s [0.006304 GB]:    187 +   1356; 524 x 2 possible solutions
+    4     0.14s [0.006307 GB]:    189 +   1354; 552 x 4 possible solutions
+    5     0.14s [0.006307 GB]:    190 +   1353; 554 x 2 possible solutions
+    6     0.14s [0.006307 GB]:    191 +   1352; 571 x 6 possible solutions
+    7     0.14s [0.006307 GB]:    192 +   1351; 581 x 2 possible solutions
+    8     0.14s [0.006308 GB]:    193 +   1350; 622 x 4 possible solutions
+    9     0.14s [0.006309 GB]:    197 +   1346; 675 x 2 possible solutions
+   10     0.14s [0.006310 GB]:    198 +   1345; 694 x 4 possible solutions
+   20     0.14s [0.006316 GB]:    208 +   1335; 939 x 4 possible solutions
+   30     0.15s [0.006322 GB]:    218 +   1325; 1209 x 14 possible solutions
+   40     0.15s [0.006328 GB]:    228 +   1315; 1629 x 32 possible solutions
+   50     0.15s [0.006336 GB]:    238 +   1305; 2217 x 54 possible solutions
+   60     0.15s [0.006348 GB]:    248 +   1295; 2854 x 106 possible solutions
+   70     0.15s [0.006359 GB]:    258 +   1285; 3643 x 196 possible solutions
+   80     0.16s [0.006376 GB]:    268 +   1275; 4645 x 270 possible solutions
+   90     0.16s [0.006392 GB]:    278 +   1265; 5868 x 386 possible solutions
+  100     0.16s [0.006418 GB]:    288 +   1255; 7327 x 608 possible solutions
+  200     0.22s [0.007079 GB]:    388 +   1155; 53733 x 14410 possible solutions
+  300     0.42s [0.010123 GB]:    488 +   1055; 244333 x 126950 possible solutions
+  400     0.84s [0.018801 GB]:    588 +    955; 730197 x 569298 possible solutions
+  500     1.74s [0.034519 GB]:    688 +    855; 1518995 x 1506372 possible solutions
+  600     3.29s [0.049774 GB]:    788 +    755; 2255544 x 2524334 possible solutions
+  700     5.43s [0.054074 GB]:    888 +    655; 2423965 x 2766832 possible solutions
+Found market share solution from SS-Algorithm!
+Subset for index 30539 (binary 0000000000000000000000000000000000000000000000000111011101001011): 92, 16, 80, 68, 63, 99, 25, 53, 87, 51
+Subset for index 4394 (binary 0000000000000000000000000000000000000000000000000001000100101010): 32, 90, 79, 76, 2
+Subset for index 7772 (binary 0000000000000000000000000000000000000000000000000001111001011100): 13, 90, 14, 21, 14, 32, 12, 20
+Subset for index 414 (binary 0000000000000000000000000000000000000000000000000000000110011110): 44, 86, 94, 75, 10, 46
+The sum is 634 + 279 + 216 + 355 = 1484
+Writing solution to ms_07_100_002.sol
+Found feasible solution!
+Eval GPU: check results     	 total time     0.07s
+Eval GPU: binary search     	 total time     2.54s
+Eval GPU: sort required     	 total time     1.11s
+Candidate extraction        	 total time     2.96s
+List traversal              	 total time     5.74s
+Solution time               	 total time     5.85s
+Evaluate solutions GPU      	 total time     3.82s
+Setup time                  	 total time     0.11s
+```
+
 ## References
 
 <a id="1">[1]</a> 
@@ -219,5 +290,12 @@ https://doi.org/10.1007/3-540-69346-7\_22
 <a id="2">[2]</a> 
 Kempke, N.-C., & Koch, T. (2025).
 A GPU accelerated variant of Schroeppel-Shamir’s algorithm for solving the market split problem.
-TODO JOURNAL
-ArxivLINK!
+arXiv
+https://arxiv.org/abs/2507.05045
+
+<a id="3">[3]</a>
+Koch et al. (2025).
+Quantum Optimization Benchmark Library -- The Intractable Decathlon
+arXiv
+https://arxiv.org/abs/2504.03832
+
