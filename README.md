@@ -213,7 +213,7 @@ Aborting!
 To solve problems from [QPBLIB](https://git.zib.de/qopt/qoblib-quantum-optimization-benchmarking-library) [[3]](#3), simply pass the dat files with the `-f` flag:
 
 ```
-nkempke@opt-008541:~$ OMP_NUM_THREADS=32 .markshare_main -f ~/git/qoblib-quantum-optimization-benchmarking-library/01-marketsplit/instances/ms_07_100_002.dat --gpu
+nkempke@opt-008541:~$ OMP_NUM_THREADS=32 ./markshare_main -f ~/git/qoblib-quantum-optimization-benchmarking-library/01-marketsplit/instances/ms_07_100_002.dat --gpu
 Reading instance from file #################/git/qoblib-quantum-optimization-benchmarking-library/01-marketsplit/instances/ms_07_100_002.dat; instance_name ms_07_100_002
 Running markshare: m=7, n=60, seed=2025, iter=0, nthread=32
 [
