@@ -290,12 +290,12 @@ https://doi.org/10.1007/3-540-69346-7\_22
 <a id="2">[2]</a> 
 Kempke, N.-C., & Koch, T. (2025).
 A GPU accelerated variant of Schroeppel-Shamir’s algorithm for solving the market split problem.
-arXiv
+arXiv.
 https://arxiv.org/abs/2507.05045
 
 <a id="3">[3]</a>
 Koch et al. (2025).
 Quantum Optimization Benchmark Library -- The Intractable Decathlon
-arXiv
+arXiv.
 https://arxiv.org/abs/2504.03832
 
