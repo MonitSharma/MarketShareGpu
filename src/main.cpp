@@ -962,7 +962,7 @@ bool shroeppel_shamir_dim_reduced(const MarkShareFeas &ms_inst, bool run_on_gpu,
                 /* Check the result - break if we are done. */
                 if (result.found)
                 {
-                    return print_and_verify_solution(buf_next, result, ms_inst, subset_sum_1d, offsets, asc_indices_set2_weights, set4_weights_sorted_desc, set1_subsets, set2_subsets_sorted_asc, set3_subsets, set4_subsets_sorted_desc, list1, list2, list3, list4, instance_name
+                    return print_and_verify_solution(buf_next, result, ms_inst, subset_sum_1d, offsets, asc_indices_set2_weights, desc_indices_set4_weights, set1_subsets, set2_subsets_sorted_asc, set3_subsets, set4_subsets_sorted_desc, list1, list2, list3, list4, instance_name
 #ifndef NDEBUG
                                                      ,
                                                      subset_sum_1d_rhs,
