@@ -76,42 +76,42 @@ Generating 32768 possible subsets for as set of size 15.
 Generating 32768 possible subsets for as set of size 15.
 Running the search loop
 
-    1     0.04s:      0 +   1328; 1 x 1728 possible solutions
-    2     0.04s:      1 +   1327; 1 x 1844 possible solutions
-    3     0.04s:      2 +   1326; 1 x 1857 possible solutions
-    4     0.04s:      3 +   1325; 1 x 1961 possible solutions
-    5     0.04s:      4 +   1324; 1 x 2079 possible solutions
-    6     0.04s:      5 +   1323; 2 x 2090 possible solutions
-    7     0.04s:      6 +   1322; 2 x 2269 possible solutions
-    8     0.05s:      7 +   1321; 3 x 2256 possible solutions
-    9     0.05s:      8 +   1320; 2 x 2369 possible solutions
-   10     0.05s:      9 +   1319; 3 x 2428 possible solutions
-   20     0.06s:     19 +   1309; 11 x 3244 possible solutions
-   30     0.07s:     29 +   1299; 22 x 4231 possible solutions
-   40     0.08s:     39 +   1289; 48 x 5572 possible solutions
-   50     0.09s:     49 +   1279; 88 x 7332 possible solutions
-   60     0.10s:     59 +   1269; 166 x 9464 possible solutions
-   70     0.11s:     69 +   1259; 294 x 12003 possible solutions
-   80     0.12s:     79 +   1249; 485 x 15323 possible solutions
-   90     0.13s:     89 +   1239; 794 x 19425 possible solutions
-  100     0.15s:     99 +   1229; 1236 x 24240 possible solutions
-  200     0.54s:    199 +   1129; 39417 x 162375 possible solutions
-  300     4.28s:    299 +   1029; 354871 x 626117 possible solutions
+    1     0.10s:      0 +   1328; 1 x 1728 possible solutions
+    2     0.10s:      1 +   1327; 1 x 1844 possible solutions
+    3     0.11s:      2 +   1326; 1 x 1857 possible solutions
+    4     0.11s:      3 +   1325; 1 x 1961 possible solutions
+    5     0.11s:      4 +   1324; 1 x 2079 possible solutions
+    6     0.11s:      5 +   1323; 2 x 2090 possible solutions
+    7     0.11s:      6 +   1322; 2 x 2269 possible solutions
+    8     0.11s:      7 +   1321; 3 x 2256 possible solutions
+    9     0.11s:      8 +   1320; 2 x 2369 possible solutions
+   10     0.12s:      9 +   1319; 3 x 2428 possible solutions
+   20     0.13s:     19 +   1309; 11 x 3244 possible solutions
+   30     0.14s:     29 +   1299; 22 x 4231 possible solutions
+   40     0.16s:     39 +   1289; 48 x 5572 possible solutions
+   50     0.17s:     49 +   1279; 88 x 7332 possible solutions
+   60     0.18s:     59 +   1269; 166 x 9464 possible solutions
+   70     0.20s:     69 +   1259; 294 x 12003 possible solutions
+   80     0.22s:     79 +   1249; 485 x 15323 possible solutions
+   90     0.23s:     89 +   1239; 794 x 19425 possible solutions
+  100     0.24s:     99 +   1229; 1236 x 24240 possible solutions
+  200     0.62s:    199 +   1129; 39417 x 162375 possible solutions
+  300     4.19s:    299 +   1029; 354871 x 626117 possible solutions
 Found market share solution from SS-Algorithm!
 Subset for index 6916 (binary 0000000000000000000000000000000000000000000000000001101100000100): 70, 89, 43, 1, 12
 Subset for index 19506 (binary 0000000000000000000000000000000000000000000000000100110000110010): 5, 69, 2, 21, 27, 49
 Subset for index 11227 (binary 0000000000000000000000000000000000000000000000000010101111011011): 59, 91, 76, 55, 25, 40, 41, 55, 30, 58
-Subset for index 410 (binary 0000000000000000000000000000000000000000000000000000000110011010): 15, 54, 75, 30, 25
-The sum is 215 + 173 + 530 + 199 = 1117
+Subset for index 23356 (binary 0000000000000000000000000000000000000000000000000101101100111100): 45, 54, 75, 78, 25, 22, 38, 71, 2
+The sum is 215 + 173 + 530 + 410 = 1328
 Writing solution to markshare_m_7_n_60_seed_3.sol
 Found feasible solution!
-Evaluate solutions CPU      	 total time    31.81s
-Eval CPU: Hash table search 	 total time     2.52s
-Eval CPU: Hash table setup  	 total time    18.10s
-Candidate extraction        	 total time     0.75s
-List traversal              	 total time    32.07s
-Solution time               	 total time    32.10s
-Setup time                  	 total time     0.04s
+Evaluate solutions CPU      	 total time    29.75s
+Eval CPU: Hash table search 	 total time     2.29s
+Eval CPU: Hash table setup  	 total time    17.15s
+Candidate extraction        	 total time     0.77s
+List traversal              	 total time    30.04s
+Solution time               	 total time    30.14s
+Setup time                  	 total time     0.10s
 ```
 The same instance on GPU:
 ```
@@ -140,40 +140,40 @@ Running the search loop
 
     1     0.10s [0.006295 GB]:      0 +   1328; 1 x 1728 possible solutions
     2     0.10s [0.006295 GB]:      1 +   1327; 1 x 1844 possible solutions
-    3     0.11s [0.006333 GB]:      2 +   1326; 1 x 1857 possible solutions
+    3     0.10s [0.006333 GB]:      2 +   1326; 1 x 1857 possible solutions
     4     0.11s [0.006333 GB]:      3 +   1325; 1 x 1961 possible solutions
     5     0.11s [0.006333 GB]:      4 +   1324; 1 x 2079 possible solutions
     6     0.11s [0.006335 GB]:      5 +   1323; 2 x 2090 possible solutions
     7     0.11s [0.006338 GB]:      6 +   1322; 2 x 2269 possible solutions
-    8     0.12s [0.006338 GB]:      7 +   1321; 3 x 2256 possible solutions
-    9     0.12s [0.006341 GB]:      8 +   1320; 2 x 2369 possible solutions
-   10     0.12s [0.006344 GB]:      9 +   1319; 3 x 2428 possible solutions
-   20     0.12s [0.006354 GB]:     19 +   1309; 11 x 3244 possible solutions
-   30     0.12s [0.006372 GB]:     29 +   1299; 22 x 4231 possible solutions
-   40     0.12s [0.006396 GB]:     39 +   1289; 48 x 5572 possible solutions
-   50     0.12s [0.006423 GB]:     49 +   1279; 88 x 7332 possible solutions
+    8     0.11s [0.006338 GB]:      7 +   1321; 3 x 2256 possible solutions
+    9     0.11s [0.006344 GB]:      8 +   1320; 2 x 2369 possible solutions
+   10     0.11s [0.006344 GB]:      9 +   1319; 3 x 2428 possible solutions
+   20     0.11s [0.006354 GB]:     19 +   1309; 11 x 3244 possible solutions
+   30     0.11s [0.006372 GB]:     29 +   1299; 22 x 4231 possible solutions
+   40     0.11s [0.006396 GB]:     39 +   1289; 48 x 5572 possible solutions
+   50     0.11s [0.006423 GB]:     49 +   1279; 88 x 7332 possible solutions
    60     0.12s [0.006458 GB]:     59 +   1269; 166 x 9464 possible solutions
-   70     0.13s [0.006487 GB]:     69 +   1259; 294 x 12003 possible solutions
-   80     0.13s [0.006535 GB]:     79 +   1249; 485 x 15323 possible solutions
-   90     0.13s [0.006594 GB]:     89 +   1239; 794 x 19425 possible solutions
-  100     0.14s [0.006655 GB]:     99 +   1229; 1236 x 24240 possible solutions
-  200     0.21s [0.008643 GB]:    199 +   1129; 39417 x 162375 possible solutions
-  300     0.39s [0.016122 GB]:    299 +   1029; 354871 x 626117 possible solutions
+   70     0.12s [0.006487 GB]:     69 +   1259; 294 x 12003 possible solutions
+   80     0.12s [0.006535 GB]:     79 +   1249; 485 x 15323 possible solutions
+   90     0.12s [0.006594 GB]:     89 +   1239; 794 x 19425 possible solutions
+  100     0.13s [0.006655 GB]:     99 +   1229; 1236 x 24240 possible solutions
+  200     0.20s [0.008643 GB]:    199 +   1129; 39417 x 162375 possible solutions
+  300     0.40s [0.016122 GB]:    299 +   1029; 354871 x 626117 possible solutions
 Found market share solution from SS-Algorithm!
 Subset for index 6916 (binary 0000000000000000000000000000000000000000000000000001101100000100): 70, 89, 43, 1, 12
 Subset for index 19506 (binary 0000000000000000000000000000000000000000000000000100110000110010): 5, 69, 2, 21, 27, 49
 Subset for index 11227 (binary 0000000000000000000000000000000000000000000000000010101111011011): 59, 91, 76, 55, 25, 40, 41, 55, 30, 58
-Subset for index 410 (binary 0000000000000000000000000000000000000000000000000000000110011010): 15, 54, 75, 30, 25
-The sum is 215 + 173 + 530 + 199 = 1117
+Subset for index 23356 (binary 0000000000000000000000000000000000000000000000000101101100111100): 45, 54, 75, 78, 25, 22, 38, 71, 2
+The sum is 215 + 173 + 530 + 410 = 1328
 Writing solution to markshare_m_7_n_60_seed_3.sol
 Found feasible solution!
 Eval GPU: check results     	 total time     0.02s
-Eval GPU: binary search     	 total time     0.26s
+Eval GPU: binary search     	 total time     0.25s
 Eval GPU: sort required     	 total time     0.16s
-Candidate extraction        	 total time     0.53s
-List traversal              	 total time     0.63s
-Solution time               	 total time     0.72s
-Evaluate solutions GPU      	 total time     0.49s
+Candidate extraction        	 total time     0.58s
+List traversal              	 total time     0.64s
+Solution time               	 total time     0.74s
+Evaluate solutions GPU      	 total time     0.47s
 Setup time                  	 total time     0.10s
 ```
 On GPU, an approximate amount of GPU memory consumed is reported in each info line. If the GPU runs OOM (note that this happens before the memory consumed actually reaches the GPU memory size), try to reduce `--max-pairs`.
@@ -236,47 +236,47 @@ Generating 32768 possible subsets for as set of size 15.
 Generating 32768 possible subsets for as set of size 15.
 Running the search loop
 
-    1     0.11s [0.006295 GB]:    177 +   1366; 374 x 2 possible solutions
-    2     0.12s [0.006304 GB]:    179 +   1364; 407 x 2 possible solutions
-    3     0.14s [0.006304 GB]:    187 +   1356; 524 x 2 possible solutions
-    4     0.14s [0.006307 GB]:    189 +   1354; 552 x 4 possible solutions
-    5     0.14s [0.006307 GB]:    190 +   1353; 554 x 2 possible solutions
-    6     0.14s [0.006307 GB]:    191 +   1352; 571 x 6 possible solutions
-    7     0.14s [0.006307 GB]:    192 +   1351; 581 x 2 possible solutions
-    8     0.14s [0.006308 GB]:    193 +   1350; 622 x 4 possible solutions
-    9     0.14s [0.006309 GB]:    197 +   1346; 675 x 2 possible solutions
-   10     0.14s [0.006310 GB]:    198 +   1345; 694 x 4 possible solutions
-   20     0.14s [0.006316 GB]:    208 +   1335; 939 x 4 possible solutions
-   30     0.15s [0.006322 GB]:    218 +   1325; 1209 x 14 possible solutions
-   40     0.15s [0.006328 GB]:    228 +   1315; 1629 x 32 possible solutions
-   50     0.15s [0.006336 GB]:    238 +   1305; 2217 x 54 possible solutions
-   60     0.15s [0.006348 GB]:    248 +   1295; 2854 x 106 possible solutions
-   70     0.15s [0.006359 GB]:    258 +   1285; 3643 x 196 possible solutions
-   80     0.16s [0.006376 GB]:    268 +   1275; 4645 x 270 possible solutions
-   90     0.16s [0.006392 GB]:    278 +   1265; 5868 x 386 possible solutions
-  100     0.16s [0.006418 GB]:    288 +   1255; 7327 x 608 possible solutions
-  200     0.22s [0.007079 GB]:    388 +   1155; 53733 x 14410 possible solutions
-  300     0.42s [0.010123 GB]:    488 +   1055; 244333 x 126950 possible solutions
-  400     0.84s [0.018801 GB]:    588 +    955; 730197 x 569298 possible solutions
-  500     1.74s [0.034519 GB]:    688 +    855; 1518995 x 1506372 possible solutions
-  600     3.29s [0.049774 GB]:    788 +    755; 2255544 x 2524334 possible solutions
-  700     5.43s [0.054074 GB]:    888 +    655; 2423965 x 2766832 possible solutions
+    1     0.10s [0.006295 GB]:    177 +   1366; 374 x 2 possible solutions
+    2     0.10s [0.006304 GB]:    179 +   1364; 407 x 2 possible solutions
+    3     0.10s [0.006304 GB]:    187 +   1356; 524 x 2 possible solutions
+    4     0.10s [0.006307 GB]:    189 +   1354; 552 x 4 possible solutions
+    5     0.10s [0.006307 GB]:    190 +   1353; 554 x 2 possible solutions
+    6     0.10s [0.006307 GB]:    191 +   1352; 571 x 6 possible solutions
+    7     0.10s [0.006307 GB]:    192 +   1351; 581 x 2 possible solutions
+    8     0.10s [0.006307 GB]:    193 +   1350; 622 x 4 possible solutions
+    9     0.10s [0.006309 GB]:    197 +   1346; 675 x 2 possible solutions
+   10     0.10s [0.006310 GB]:    198 +   1345; 694 x 4 possible solutions
+   20     0.11s [0.006316 GB]:    208 +   1335; 939 x 4 possible solutions
+   30     0.11s [0.006322 GB]:    218 +   1325; 1209 x 14 possible solutions
+   40     0.11s [0.006328 GB]:    228 +   1315; 1629 x 32 possible solutions
+   50     0.11s [0.006336 GB]:    238 +   1305; 2217 x 54 possible solutions
+   60     0.11s [0.006348 GB]:    248 +   1295; 2854 x 106 possible solutions
+   70     0.11s [0.006359 GB]:    258 +   1285; 3643 x 196 possible solutions
+   80     0.12s [0.006376 GB]:    268 +   1275; 4645 x 270 possible solutions
+   90     0.12s [0.006392 GB]:    278 +   1265; 5868 x 386 possible solutions
+  100     0.12s [0.006418 GB]:    288 +   1255; 7327 x 608 possible solutions
+  200     0.18s [0.007079 GB]:    388 +   1155; 53733 x 14410 possible solutions
+  300     0.37s [0.010123 GB]:    488 +   1055; 244333 x 126950 possible solutions
+  400     0.74s [0.018801 GB]:    588 +    955; 730197 x 569298 possible solutions
+  500     1.29s [0.034519 GB]:    688 +    855; 1518995 x 1506372 possible solutions
+  600     2.37s [0.049774 GB]:    788 +    755; 2255544 x 2524334 possible solutions
+  700     3.93s [0.054074 GB]:    888 +    655; 2423965 x 2766832 possible solutions
 Found market share solution from SS-Algorithm!
 Subset for index 30539 (binary 0000000000000000000000000000000000000000000000000111011101001011): 92, 16, 80, 68, 63, 99, 25, 53, 87, 51
 Subset for index 4394 (binary 0000000000000000000000000000000000000000000000000001000100101010): 32, 90, 79, 76, 2
 Subset for index 7772 (binary 0000000000000000000000000000000000000000000000000001111001011100): 13, 90, 14, 21, 14, 32, 12, 20
-Subset for index 414 (binary 0000000000000000000000000000000000000000000000000000000110011110): 44, 86, 94, 75, 10, 46
-The sum is 634 + 279 + 216 + 355 = 1484
+Subset for index 5910 (binary 0000000000000000000000000000000000000000000000000001011100010110): 44, 86, 75, 46, 25, 44, 94
+The sum is 634 + 279 + 216 + 414 = 1543
 Writing solution to ms_07_100_002.sol
 Found feasible solution!
-Eval GPU: check results     	 total time     0.07s
-Eval GPU: binary search     	 total time     2.54s
-Eval GPU: sort required     	 total time     1.11s
-Candidate extraction        	 total time     2.96s
-List traversal              	 total time     5.74s
-Solution time               	 total time     5.85s
-Evaluate solutions GPU      	 total time     3.82s
-Setup time                  	 total time     0.11s
+Eval GPU: check results     	 total time     0.06s
+Eval GPU: binary search     	 total time     2.55s
+Eval GPU: sort required     	 total time     1.10s
+Candidate extraction        	 total time     2.51s
+List traversal              	 total time     4.27s
+Solution time               	 total time     4.37s
+Evaluate solutions GPU      	 total time     3.78s
+Setup time                  	 total time     0.10s
 ```
 
 ## References
