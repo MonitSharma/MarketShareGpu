@@ -12,6 +12,7 @@ option(USE_CUDA "Enable CUDA support" ON)
 # Find OpenMP
 find_package(OpenMP REQUIRED)
 
+
 if (USE_CUDA)
     # Find CUDA Toolkit
     find_package(CUDAToolkit REQUIRED)
@@ -26,7 +27,7 @@ endif (USE_CUDA)
 if (CUDA_ENABLED)
     add_executable (markshare_main src/main.cpp src/cuda_kernels.cu)
 
-    set_target_properties(markshare_main PROPERTIES CUDA_ARCHITECTURES "70;75;80;86;90") # Replace these with the desired compute capabilities
+    set_target_properties(markshare_main PROPERTIES CUDA_ARCHITECTURES "70;75;80;86") # Replace these with the desired compute capabilities
     set_target_properties(markshare_main PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
     target_compile_options(markshare_main PRIVATE
