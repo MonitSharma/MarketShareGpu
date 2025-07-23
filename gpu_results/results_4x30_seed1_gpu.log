@@ -1,0 +1,47 @@
+Storing mark share instance as markshare_m_4_n_30_seed_1.prb
+Running markshare: m=4, n=30, seed=1, iter=0, nthread=24
+[
+ [ 12 29 21 27  0  3  9 29  4  7  2 11  5 11 10 20 11 28 16 25 12  9 20 15  6 13 26  6  0 16 | 201 ]
+ [ 20 27 12 13 16 12  4 28  5 23 24 21 29 24  9  2 20 15 26 25 26 24  2 24  1  8  5  1 26 20 | 246 ]
+ [  2 17 12 20 28 12 15  5 20  8  9  4 20 23 25 12  0  1 22 18 29 19 22  8  8 13 23  6  3  2 | 203 ]
+ [ 13 14 27  2  8 27  8  3  3 15  0  2 20 27  6 27  7  8 14 17  1 16 17 18  4 28 17  7 20  6 | 191 ]
+]
+Running reduced dim shroeppel shamir
+Running with 24 threads
+Max reducible dimension is 5 (encoded with basis 6001)
+Reducing 1 dimensions for Shroeppel-Shamir - leaving 3 for verification
+Splitting sets into [0, 6]; [7, 14]; [15, 21]; [22, 30]
+Generating 128 possible subsets for as set of size 7.
+Generating 256 possible subsets for as set of size 8.
+Generating 128 possible subsets for as set of size 7.
+Generating 256 possible subsets for as set of size 8.
+Running the search loop
+
+    1     0.18s [0.000019 GB]:      0 +    201; 2 x 10 possible solutions
+    2     0.18s [0.000019 GB]:      2 +    199; 2 x 6 possible solutions
+    3     0.18s [0.000020 GB]:      3 +    198; 2 x 10 possible solutions
+    4     0.18s [0.000020 GB]:      4 +    197; 2 x 16 possible solutions
+    5     0.19s [0.000020 GB]:      5 +    196; 4 x 12 possible solutions
+    6     0.19s [0.000020 GB]:      6 +    195; 2 x 16 possible solutions
+    7     0.19s [0.000020 GB]:      7 +    194; 6 x 12 possible solutions
+    8     0.19s [0.000020 GB]:      8 +    193; 2 x 8 possible solutions
+    9     0.19s [0.000020 GB]:      9 +    192; 8 x 24 possible solutions
+   10     0.19s [0.000020 GB]:     10 +    191; 6 x 22 possible solutions
+   20     0.19s [0.000021 GB]:     20 +    181; 26 x 48 possible solutions
+   30     0.19s [0.000021 GB]:     30 +    171; 68 x 76 possible solutions
+Found market share solution from SS-Algorithm!
+Subset for index 1 (binary 0000000000000000000000000000000000000000000000000000000000000001): 12
+Subset for index 78 (binary 0000000000000000000000000000000000000000000000000000000001001110): 4, 7, 2, 11
+Subset for index 118 (binary 0000000000000000000000000000000000000000000000000000000001110110): 11, 28, 25, 12, 9
+Subset for index 31 (binary 0000000000000000000000000000000000000000000000000000000000011111): 20, 15, 6, 13, 26
+The sum is 12 + 24 + 85 + 80 = 201
+Writing solution to markshare_m_4_n_30_seed_1.sol
+Found feasible solution!
+Eval GPU: check results     	 total time     0.01s
+Eval GPU: binary search     	 total time     0.00s
+Eval GPU: sort required     	 total time     0.00s
+Candidate extraction        	 total time     0.00s
+List traversal              	 total time     0.02s
+Solution time               	 total time     0.20s
+Evaluate solutions GPU      	 total time     0.01s
+Setup time                  	 total time     0.18s

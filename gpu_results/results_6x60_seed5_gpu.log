@@ -1,0 +1,56 @@
+Storing mark share instance as markshare_m_6_n_50_seed_5.prb
+Running markshare: m=6, n=50, seed=5, iter=0, nthread=24
+[
+ [ 13  3 52 49 12 21 55 58 29  5 36 23 45 21 31 29 17 59 11 48  4 38 44 49 26 14  9 45 52  6 16 12 24  7 17 52 37 31 34 29 35 43 15  0 17  5 15 49 19 50 | 705 ]
+ [  8 53  9 57 57 33 57  5 11 59  1 28 12 41 41 50 46 36  1 33 34 22  0 41 30 48 38 55 59  0 15 43 48 40 52 11 55 41  0 34 28 34 58  3 23 10 48 20 32 36 | 798 ]
+ [ 46 11 29  7  1 56  5 18  6 28 15  3 57 16 37 13 48 56 33 22 38 23 48 18 55 11 54 44 49 55  5 41 21 25  2 33 32 12 47  9  3 50 11 50 21 38 14  8 47 10 | 690 ]
+ [ 21 19 38 57 29 13 35 53 56 55 56  5  6 48 50 59 20 21  6 29 23 44 30 22 57  2 22  9  0 19 51  7  6 21 28 41 50 47 30 26 26 58 48 30  1 29 34  3 24 14 | 739 ]
+ [ 59 45 48 37  3 44 11 59 27 35 42 30 19 13 21 34 55 46 57 49 24 14 53 51 19  8  4 45 31 56 39 42 53  7 57  7 46 36 45 59 42 54 42 15 46 35 58 20 22 26 | 895 ]
+ [  4 38 14 20 13 50 21 37 48 12  3 22 26 31 48 40 15 16  3 45 14 42  5  5 48  6 10 20 11 49 48 55 48 45 35 52 54 51  3 10 57 35 34 21 18 44 49  1 39 10 | 712 ]
+]
+Running reduced dim shroeppel shamir
+Running with 24 threads
+Max reducible dimension is 4 (encoded with basis 10001)
+Reducing 1 dimensions for Shroeppel-Shamir - leaving 5 for verification
+Splitting sets into [0, 11]; [12, 24]; [25, 36]; [37, 50]
+Generating 4096 possible subsets for as set of size 12.
+Generating 8192 possible subsets for as set of size 13.
+Generating 4096 possible subsets for as set of size 12.
+Generating 8192 possible subsets for as set of size 13.
+Running the search loop
+
+    1     0.26s [0.000985 GB]:     72 +    633; 126 x 2 possible solutions
+    2     0.26s [0.000985 GB]:     77 +    628; 170 x 2 possible solutions
+    3     0.26s [0.000990 GB]:     78 +    627; 183 x 2 possible solutions
+    4     0.26s [0.000991 GB]:     79 +    626; 184 x 2 possible solutions
+    5     0.26s [0.000991 GB]:     81 +    624; 216 x 2 possible solutions
+    6     0.26s [0.000991 GB]:     83 +    622; 230 x 2 possible solutions
+    7     0.26s [0.000992 GB]:     84 +    621; 237 x 4 possible solutions
+    8     0.26s [0.000992 GB]:     85 +    620; 268 x 2 possible solutions
+    9     0.26s [0.000992 GB]:     86 +    619; 270 x 4 possible solutions
+   10     0.26s [0.000993 GB]:     87 +    618; 286 x 6 possible solutions
+   20     0.27s [0.000997 GB]:     97 +    608; 466 x 8 possible solutions
+   30     0.27s [0.001002 GB]:    107 +    598; 727 x 36 possible solutions
+   40     0.27s [0.001008 GB]:    117 +    588; 1117 x 84 possible solutions
+   50     0.27s [0.001020 GB]:    127 +    578; 1673 x 180 possible solutions
+   60     0.28s [0.001031 GB]:    137 +    568; 2440 x 344 possible solutions
+   70     0.28s [0.001048 GB]:    147 +    558; 3477 x 612 possible solutions
+   80     0.29s [0.001069 GB]:    157 +    548; 4841 x 1060 possible solutions
+   90     0.29s [0.001093 GB]:    167 +    538; 6644 x 1804 possible solutions
+  100     0.29s [0.001134 GB]:    177 +    528; 8883 x 2826 possible solutions
+Found market share solution from SS-Algorithm!
+Subset for index 451 (binary 0000000000000000000000000000000000000000000000000000000111000011): 13, 3, 55, 58, 29
+Subset for index 2386 (binary 0000000000000000000000000000000000000000000000000000100101010010): 21, 17, 11, 4, 49
+Subset for index 3131 (binary 0000000000000000000000000000000000000000000000000000110000111011): 14, 9, 52, 6, 16, 52, 37
+Subset for index 7417 (binary 0000000000000000000000000000000000000000000000000001110011111001): 31, 35, 43, 15, 0, 17, 49, 19, 50
+The sum is 158 + 102 + 186 + 259 = 705
+Writing solution to markshare_m_6_n_50_seed_5.sol
+Found feasible solution!
+Eval GPU: check results     	 total time     0.02s
+Eval GPU: binary search     	 total time     0.01s
+Eval GPU: sort required     	 total time     0.04s
+Candidate extraction        	 total time     0.04s
+List traversal              	 total time     0.09s
+Solution time               	 total time     0.35s
+Evaluate solutions GPU      	 total time     0.08s
+Setup time                  	 total time     0.26s

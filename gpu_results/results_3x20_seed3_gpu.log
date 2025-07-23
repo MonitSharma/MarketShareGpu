@@ -1,0 +1,42 @@
+Storing mark share instance as markshare_m_3_n_20_seed_3.prb
+Running markshare: m=3, n=20, seed=3, iter=0, nthread=24
+[
+ [ 11  1 14 16  5  2 10 11 17  8 17  0  2  0  4  4  1  1  8 13 | 72 ]
+ [  0  2  9  9 12  4  5  7 13  9 11 18  0 15 11 19  5  8  8 11 | 88 ]
+ [  5  6 13 11  8  5  3  9 10 15 15 16  6  5  4 17  7 14 18  0 | 93 ]
+]
+Running reduced dim shroeppel shamir
+Running with 24 threads
+Max reducible dimension is 5 (encoded with basis 4001)
+Reducing 1 dimensions for Shroeppel-Shamir - leaving 2 for verification
+Splitting sets into [0, 4]; [5, 9]; [10, 14]; [15, 20]
+Generating 32 possible subsets for as set of size 5.
+Generating 32 possible subsets for as set of size 5.
+Generating 32 possible subsets for as set of size 5.
+Generating 32 possible subsets for as set of size 5.
+Running the search loop
+
+    1     0.27s [0.000003 GB]:     22 +     50; 9 x 4 possible solutions
+    2     0.27s [0.000003 GB]:     23 +     49; 7 x 8 possible solutions
+    3     0.27s [0.000003 GB]:     24 +     48; 11 x 8 possible solutions
+    4     0.27s [0.000003 GB]:     25 +     47; 11 x 8 possible solutions
+    5     0.27s [0.000003 GB]:     26 +     46; 11 x 12 possible solutions
+    6     0.27s [0.000003 GB]:     27 +     45; 15 x 16 possible solutions
+    7     0.27s [0.000003 GB]:     28 +     44; 13 x 16 possible solutions
+    8     0.27s [0.000003 GB]:     29 +     43; 14 x 16 possible solutions
+Found market share solution from SS-Algorithm!
+Subset for index 17 (binary 0000000000000000000000000000000000000000000000000000000000010001): 11, 5
+Subset for index 3 (binary 0000000000000000000000000000000000000000000000000000000000000011): 2, 10
+Subset for index 7 (binary 0000000000000000000000000000000000000000000000000000000000000111): 17, 0, 2
+Subset for index 25 (binary 0000000000000000000000000000000000000000000000000000000000011001): 4, 8, 13
+The sum is 16 + 12 + 19 + 25 = 72
+Writing solution to markshare_m_3_n_20_seed_3.sol
+Found feasible solution!
+Eval GPU: check results     	 total time     0.00s
+Eval GPU: binary search     	 total time     0.00s
+Eval GPU: sort required     	 total time     0.00s
+Candidate extraction        	 total time     0.00s
+List traversal              	 total time     0.01s
+Solution time               	 total time     0.27s
+Evaluate solutions GPU      	 total time     0.00s
+Setup time                  	 total time     0.27s

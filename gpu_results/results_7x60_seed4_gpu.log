@@ -1,0 +1,59 @@
+Storing mark share instance as markshare_m_7_n_60_seed_4.prb
+Running markshare: m=7, n=60, seed=4, iter=0, nthread=24
+[
+ [ 58 54 32 10 58 51 42 36 41 35 12  8 58 13  0 41 15 54 26 37 46  0 11 34 51 21 59 36  9 23 35 48  0 36 23 15  2 38 57 48 26  1 56  2 47 56 51 26 10 26  4  3 36 10 10 51 44 50 24 55 | 930 ]
+ [ 31 52 56 50 31 15  6  2  9 13 32 12 31 10 38 18 24 14 38 22 23 37 37 13 46  8 10 34 22 21 30 28 41 21 15  4 33 15 37  2 53 55 21 14 38 48 11  7 29  4 10 41 55 56 25 18 49 52 25 41 | 816 ]
+ [ 54 21 24 54 19 22 34 50 50 44 51 41 35 40  5  4 35  2 14  5 43 13 53 48 30  6 36  3  3 56 32  9  7 35 36 57 21 22 46  1  2 31  6 18 41 49 30 55 34  7 50 49 29 47 48 41 30 39 55 56 | 939 ]
+ [ 40 14  8 28 21 55 51 10 21  9 11 58 28 19 23 53 37 32 26 22 15  8 24  6 25  4 54 11 58  0 37 52  4 56 43 30 40 44 49 29 20  0  3 27 36  8  7 18 45 45 47 45 24 55 56 55 10  5 56 11 | 864 ]
+ [ 27 33 45  0 45 13 58  2 58  5  2 39  0 35 32 43  2 54 39  1 32 53 39 30 26 36 16  8 56 28 43 38  0 29  5 55 37 56 17 29 24 24 46 48 21 30 55 29 43 52 33 53 10  8 24 43 45 33 59 53 | 949 ]
+ [  4 18  8 45 44 16 50  7  5 13 49 46 47 47 41 39 20 18 26 59 21 17 50 40 19 15 19 25 56 52 55 35 58 16 48 44  5 43  5 41 33 27 51 29 53 24 38 57 57  0  9 18 13 59 19 53 15  1 18  6 | 923 ]
+ [  7  5 22 15  1 11 32 23 56 47 26  5 37 22 36 23 56 18 44 28 49 59 20 44 54  5 11 36 24 11 44 22 20 56 53 14 51 24  9 58 13  2  3 17 51 16 20 27 23 25 16 45  7 15 27 51 14 35 33 42 | 830 ]
+]
+Running reduced dim shroeppel shamir
+Running with 24 threads
+Max reducible dimension is 4 (encoded with basis 12001)
+Reducing 1 dimensions for Shroeppel-Shamir - leaving 6 for verification
+Splitting sets into [0, 14]; [15, 29]; [30, 44]; [45, 60]
+Generating 32768 possible subsets for as set of size 15.
+Generating 32768 possible subsets for as set of size 15.
+Generating 32768 possible subsets for as set of size 15.
+Generating 32768 possible subsets for as set of size 15.
+Running the search loop
+
+    1     0.31s [0.006295 GB]:     40 +    890; 28 x 2 possible solutions
+    2     0.31s [0.006295 GB]:     41 +    889; 36 x 2 possible solutions
+    3     0.32s [0.006296 GB]:     42 +    888; 48 x 4 possible solutions
+    4     0.32s [0.006296 GB]:     43 +    887; 44 x 6 possible solutions
+    5     0.32s [0.006296 GB]:     44 +    886; 68 x 6 possible solutions
+    6     0.32s [0.006296 GB]:     45 +    885; 64 x 8 possible solutions
+    7     0.32s [0.006296 GB]:     46 +    884; 68 x 8 possible solutions
+    8     0.32s [0.006296 GB]:     47 +    883; 64 x 8 possible solutions
+    9     0.32s [0.006296 GB]:     48 +    882; 52 x 6 possible solutions
+   10     0.32s [0.006296 GB]:     49 +    881; 64 x 6 possible solutions
+   20     0.32s [0.006298 GB]:     59 +    871; 156 x 24 possible solutions
+   30     0.33s [0.006300 GB]:     69 +    861; 280 x 70 possible solutions
+   40     0.33s [0.006304 GB]:     79 +    851; 516 x 150 possible solutions
+   50     0.33s [0.006309 GB]:     89 +    841; 860 x 232 possible solutions
+   60     0.33s [0.006321 GB]:     99 +    831; 1392 x 400 possible solutions
+   70     0.34s [0.006337 GB]:    109 +    821; 2304 x 840 possible solutions
+   80     0.35s [0.006358 GB]:    119 +    811; 3656 x 1674 possible solutions
+   90     0.35s [0.006393 GB]:    129 +    801; 5688 x 2926 possible solutions
+  100     0.36s [0.006442 GB]:    139 +    791; 8832 x 4472 possible solutions
+  200     0.45s [0.010282 GB]:    239 +    691; 226340 x 176340 possible solutions
+  300     0.70s [0.034086 GB]:    339 +    591; 1538136 x 1468300 possible solutions
+Found market share solution from SS-Algorithm!
+Subset for index 18712 (binary 0000000000000000000000000000000000000000000000000100100100011000): 10, 58, 41, 8, 0
+Subset for index 22769 (binary 0000000000000000000000000000000000000000000000000101100011110001): 41, 37, 46, 0, 11, 59, 36, 23
+Subset for index 17159 (binary 0000000000000000000000000000000000000000000000000100001100000111): 35, 48, 0, 57, 48, 47
+Subset for index 27893 (binary 0000000000000000000000000000000000000000000000000110110011110101): 56, 26, 26, 4, 3, 36, 51, 44, 24, 55
+The sum is 117 + 253 + 235 + 325 = 930
+Writing solution to markshare_m_7_n_60_seed_4.sol
+Found feasible solution!
+Eval GPU: check results     	 total time     0.05s
+Eval GPU: binary search     	 total time     0.16s
+Eval GPU: sort required     	 total time     0.22s
+Candidate extraction        	 total time     0.41s
+List traversal              	 total time     0.55s
+Solution time               	 total time     0.87s
+Evaluate solutions GPU      	 total time     0.50s
+Setup time                  	 total time     0.31s
